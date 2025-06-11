@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { supabaseAdmin } from "@/lib/supabase"
+import Replicate from "replicate"
 
 // Types for the request
 interface SelectedSong {
@@ -28,6 +29,11 @@ interface GenerateMusicRequest {
   description: string
   selectedSongs: SelectedSong[]
 }
+
+// Initialize Replicate client
+const replicate = new Replicate({
+  auth: process.env.REPLICATE_API_TOKEN || "",
+})
 
 // Title generation data
 const titleWords = {
@@ -171,132 +177,85 @@ function generateRandomTitle(description: string, selectedSongs: SelectedSong[])
   return titleParts.join(" ")
 }
 
-// Placeholder function for Replicate MusicGen integration
-async function generateMusicWithReplicate(prompt: string, duration = 30) {
+// Function to generate music with Replicate using webhooks
+async function generateMusicWithReplicate(prompt: string, trackId: string, duration = 10) {
+  if (!process.env.REPLICATE_API_TOKEN) {
+    throw new Error("Replicate API token not configured")
+  }
+
   try {
-    // Check if we have a Replicate API token
-    const replicateApiToken = process.env.REPLICATE_API_TOKEN
+    console.log("Starting music generation with prompt:", prompt)
 
-    if (!replicateApiToken) {
-      console.log("No Replicate API token found, using placeholder data")
-      // Simulate API delay
-      await new Promise((resolve) => setTimeout(resolve, 2000))
+    // Construct webhook URL
+    const baseUrl = process.env.VERCEL_URL
+      ? `https://${process.env.VERCEL_URL}`
+      : process.env.NEXTAUTH_URL || "http://localhost:3000"
 
-      return {
-        id: `pred_${Math.random().toString(36).substr(2, 9)}`,
-        status: "succeeded",
-        output: `https://replicate.delivery/pbxt/fake-audio-${Date.now()}.mp3`,
+    const webhookUrl = `${baseUrl}/api/webhooks/replicate`
+
+    console.log("Using webhook URL:", webhookUrl)
+
+    // Create prediction with webhook
+    const prediction = await replicate.predictions.create({
+      version: "671ac645ce5e552cc63a54a2bbff63fcf798043055d2dac5fc9e36a837eedcfb",
+      input: {
+        prompt: prompt,
+        model_version: "stereo-large",
+        output_format: "mp3",
+        normalization_strategy: "peak",
+        top_k: 250,
+        top_p: 0.0,
+        temperature: 1.0,
+        classifier_free_guidance: 3.0,
         duration: duration,
-      }
-    }
+      },
+      webhook: webhookUrl,
+      webhook_events_filter: ["start", "output", "logs", "completed"],
+    })
 
-    // In a real implementation with the token, we would use the Replicate API
-    // const response = await fetch("https://api.replicate.com/v1/predictions", {
-    //   method: "POST",
-    //   headers: {
-    //     "Content-Type": "application/json",
-    //     Authorization: `Token ${replicateApiToken}`,
-    //   },
-    //   body: JSON.stringify({
-    //     version: "7a76a8258b7be33e2128f773ede96dc13f13254c694d18ea2c44a9cae35198a5", // MusicGen model version
-    //     input: {
-    //       prompt: prompt,
-    //       duration: duration,
-    //     },
-    //   }),
-    // })
-    // const prediction = await response.json()
-    // return prediction
+    console.log("Prediction created:", prediction.id)
 
-    // For now, return placeholder data
-    await new Promise((resolve) => setTimeout(resolve, 2000))
     return {
-      id: `pred_${Math.random().toString(36).substr(2, 9)}`,
-      status: "succeeded",
-      output: `https://replicate.delivery/pbxt/fake-audio-${Date.now()}.mp3`,
-      duration: duration,
+      predictionId: prediction.id,
+      status: prediction.status,
+      webhookUrl: webhookUrl,
     }
   } catch (error) {
     console.error("Error generating music with Replicate:", error)
-    throw error
-  }
-}
 
-// Function to upload audio to Supabase storage
-async function uploadToSupabaseStorage(audioUrl: string, fileName: string) {
-  try {
-    // In a real implementation, this would:
-    // 1. Download the audio file from Replicate
-    // 2. Upload it to Supabase storage
+    // Improved error handling for various error types
+    let errorMessage = "Failed to generate music"
 
-    // For now, return placeholder data if we don't have Supabase credentials
-    if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-      console.log("No Supabase credentials found, using placeholder data")
-      return {
-        path: `music/${fileName}`,
-        publicUrl: `https://fake-supabase-storage.com/music/${fileName}`,
+    if (error instanceof Error) {
+      // Extract the most useful part of the error message
+      errorMessage = error.message
+
+      // Handle specific Replicate errors with better messages
+      if (error.message.includes("Invalid version")) {
+        errorMessage = "The MusicGen model version is not available. Please try again later."
+      } else if (error.message.includes("rate limit")) {
+        errorMessage = "Rate limit exceeded. Please wait a moment before trying again."
+      } else if (error.message.includes("insufficient credits")) {
+        errorMessage = "Insufficient Replicate credits. Please check your account."
+      } else if (error.message.includes("An error occurred")) {
+        errorMessage = "Replicate service error. Please try again later."
       }
     }
 
-    // In a real implementation with credentials:
-    // 1. Fetch the audio file from Replicate
-    // const audioResponse = await fetch(audioUrl)
-    // if (!audioResponse.ok) throw new Error(`Failed to fetch audio: ${audioResponse.status}`)
-    // const audioBuffer = await audioResponse.arrayBuffer()
-
-    // 2. Upload to Supabase storage
-    // const { data, error } = await supabaseAdmin.storage
-    //   .from('music')
-    //   .upload(fileName, audioBuffer, {
-    //     contentType: 'audio/mpeg',
-    //     cacheControl: '3600',
-    //   })
-
-    // if (error) throw error
-
-    // 3. Get the public URL
-    // const { data: publicUrlData } = supabaseAdmin.storage
-    //   .from('music')
-    //   .getPublicUrl(fileName)
-
-    // return {
-    //   path: data.path,
-    //   publicUrl: publicUrlData.publicUrl,
-    // }
-
-    // For now, return placeholder data
-    return {
-      path: `music/${fileName}`,
-      publicUrl: `https://fake-supabase-storage.com/music/${fileName}`,
-    }
-  } catch (error) {
-    console.error("Error uploading to Supabase storage:", error)
-    throw error
+    throw new Error(errorMessage)
   }
 }
 
 // Function to create a track record in Supabase
 async function createTrackRecord(data: any) {
   try {
-    // Check if we have Supabase credentials
-    if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-      console.log("No Supabase credentials found, using placeholder data")
-      const trackId = `track_${Math.random().toString(36).substr(2, 9)}`
-      return {
-        id: trackId,
-        ...data,
-        created_at: new Date().toISOString(),
-      }
-    }
-
-    // Insert the track record into the database
     const { data: track, error } = await supabaseAdmin.from("tracks").insert([data]).select().single()
 
     if (error) {
-      console.error("Error creating track record:", error)
-      throw error
+      throw new Error(`Database error: ${error.message}`)
     }
 
+    console.log("Track record created:", track.id)
     return track
   } catch (error) {
     console.error("Error creating track record:", error)
@@ -307,74 +266,17 @@ async function createTrackRecord(data: any) {
 // Function to update a track record in Supabase
 async function updateTrackRecord(id: string, updates: any) {
   try {
-    // Check if we have Supabase credentials
-    if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-      console.log("No Supabase credentials found, using placeholder data")
-      return { id, ...updates }
-    }
-
-    // Update the track record in the database
     const { data, error } = await supabaseAdmin.from("tracks").update(updates).eq("id", id).select().single()
 
     if (error) {
-      console.error("Error updating track record:", error)
-      throw error
+      throw new Error(`Database error: ${error.message}`)
     }
 
+    console.log("Track record updated:", id, updates.status)
     return data
   } catch (error) {
     console.error("Error updating track record:", error)
     throw error
-  }
-}
-
-// Function to get recent tracks
-async function getRecentTracks(limit = 3) {
-  try {
-    // Check if we have Supabase credentials
-    if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-      console.log("No Supabase credentials found, using placeholder data")
-      return [
-        {
-          id: "1",
-          title: "Midnight Study Session",
-          duration: 154,
-          status: "completed",
-          created_at: new Date(Date.now() - 86400000).toISOString(),
-        },
-        {
-          id: "2",
-          title: "Rainy Day Vibes",
-          duration: 201,
-          status: "completed",
-          created_at: new Date(Date.now() - 172800000).toISOString(),
-        },
-        {
-          id: "3",
-          title: "Coffee Shop Ambience",
-          duration: 252,
-          status: "completed",
-          created_at: new Date(Date.now() - 259200000).toISOString(),
-        },
-      ]
-    }
-
-    // Query the database for recent tracks
-    const { data: tracks, error } = await supabaseAdmin
-      .from("tracks")
-      .select("id, title, duration, status, created_at")
-      .order("created_at", { ascending: false })
-      .limit(limit)
-
-    if (error) {
-      console.error("Error fetching recent tracks:", error)
-      return []
-    }
-
-    return tracks || []
-  } catch (error) {
-    console.error("Error fetching recent tracks:", error)
-    return []
   }
 }
 
@@ -424,11 +326,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Either description or selected songs must be provided" }, { status: 400 })
     }
 
+    // Check for required environment variables
+    if (!process.env.REPLICATE_API_TOKEN) {
+      return NextResponse.json({ error: "Replicate API not configured" }, { status: 500 })
+    }
+
+    if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      return NextResponse.json({ error: "Supabase not configured" }, { status: 500 })
+    }
+
     // Generate a random title based on the supplied data
     const title = generateRandomTitle(description, selectedSongs)
 
     // Create generation prompt
     const generationPrompt = createGenerationPrompt(description, selectedSongs)
+    console.log("Generated prompt:", generationPrompt)
 
     // Extract metadata from selected songs
     const allGenres = [...new Set(selectedSongs.flatMap((song) => song.genres || []))]
@@ -455,7 +367,7 @@ export async function POST(request: NextRequest) {
       selected_songs: selectedSongs,
       generation_params: {
         prompt: generationPrompt,
-        duration: 30,
+        duration: 10, // 10 seconds for faster generation
         model: "musicgen",
       },
       genres: allGenres.slice(0, 5), // Limit to 5 genres
@@ -467,36 +379,27 @@ export async function POST(request: NextRequest) {
 
     const track = await createTrackRecord(trackData)
 
-    // Start music generation (in background)
-    generateMusicWithReplicate(generationPrompt, 30)
-      .then(async (replicateResult) => {
-        if (replicateResult.status === "succeeded") {
-          // Upload to Supabase storage
-          const fileName = `${track.id}_${Date.now()}.mp3`
-          const storageResult = await uploadToSupabaseStorage(replicateResult.output, fileName)
+    // Start music generation with webhook
+    try {
+      const replicateResult = await generateMusicWithReplicate(generationPrompt, track.id, 10)
 
-          // Update track record with results
-          await updateTrackRecord(track.id, {
-            status: "completed",
-            file_url: storageResult.publicUrl,
-            file_path: storageResult.path,
-            replicate_prediction_id: replicateResult.id,
-            duration: replicateResult.duration,
-          })
-        } else {
-          await updateTrackRecord(track.id, {
-            status: "failed",
-          })
-        }
-      })
-      .catch(async (error) => {
-        console.error("Music generation failed:", error)
-        await updateTrackRecord(track.id, {
-          status: "failed",
-        })
+      // Update track record with Replicate prediction ID
+      await updateTrackRecord(track.id, {
+        replicate_prediction_id: replicateResult.predictionId,
       })
 
-    // Return the track immediately (while generation continues in background)
+      console.log("Generation started for track:", track.id, "with prediction:", replicateResult.predictionId)
+    } catch (replicateError) {
+      console.error("Failed to start generation:", replicateError)
+
+      // Update track record with failure
+      await updateTrackRecord(track.id, {
+        status: "failed",
+        error_message: replicateError instanceof Error ? replicateError.message : "Failed to start generation",
+      })
+    }
+
+    // Return the track immediately (generation continues via webhook)
     return NextResponse.json({
       success: true,
       track: {
@@ -509,7 +412,12 @@ export async function POST(request: NextRequest) {
     })
   } catch (error) {
     console.error("Music generation error:", error)
-    return NextResponse.json({ error: "Failed to generate music" }, { status: 500 })
+    return NextResponse.json(
+      {
+        error: error instanceof Error ? error.message : "Failed to generate music",
+      },
+      { status: 500 },
+    )
   }
 }
 
@@ -523,19 +431,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Track ID is required" }, { status: 400 })
     }
 
-    // Check if we have Supabase credentials
     if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-      console.log("No Supabase credentials found, using placeholder data")
-      // Return placeholder status
-      const track = {
-        id: trackId,
-        title: "Generated Track",
-        status: Math.random() > 0.5 ? "completed" : "generating",
-        file_url: `https://fake-storage.com/music/${trackId}.mp3`,
-        duration: 30,
-        created_at: new Date().toISOString(),
-      }
-      return NextResponse.json({ track })
+      return NextResponse.json({ error: "Supabase not configured" }, { status: 500 })
     }
 
     // Query the database for the track
@@ -553,6 +450,11 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ track })
   } catch (error) {
     console.error("Status check error:", error)
-    return NextResponse.json({ error: "Failed to check status" }, { status: 500 })
+    return NextResponse.json(
+      {
+        error: error instanceof Error ? error.message : "Failed to check status",
+      },
+      { status: 500 },
+    )
   }
 }

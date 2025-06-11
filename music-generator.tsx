@@ -1,15 +1,17 @@
 "use client"
 
 import { useState, useRef, useEffect, useCallback } from "react"
-import { Loader2, ExternalLink, X, Music2, Zap, HeartIcon, Clock, CheckCircle, AlertCircle } from "lucide-react"
+import { Loader2, ExternalLink, X, Music2, Zap, HeartIcon, Clock, CheckCircle, AlertCircle, Info } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Search, Music, Play, Download, Heart, Headphones } from "lucide-react"
+import { Search, Music, Play, Download, Heart, Headphones, Calendar } from "lucide-react"
+import { useAudioPlayer } from "./hooks/use-audio-player"
+import { format } from "date-fns"
 
 interface AudioFeatures {
   danceability: number
@@ -51,6 +53,15 @@ interface GeneratedTrack {
   duration?: number
   created_at: string
   estimated_completion?: string
+  user_description?: string
+  description?: string
+  genres?: string[]
+  selected_songs?: any[]
+  generation_params?: any
+  tempo?: number
+  energy?: number
+  valence?: number
+  error_message?: string
 }
 
 function useSpotifySearch() {
@@ -135,12 +146,22 @@ export default function Component() {
   const [isGenerating, setIsGenerating] = useState(false)
   const [generatedTracks, setGeneratedTracks] = useState<GeneratedTrack[]>([])
   const [generationError, setGenerationError] = useState<string | null>(null)
-  const [recentTracks, setRecentTracks] = useState<any[]>([])
+  const [recentTracks, setRecentTracks] = useState<GeneratedTrack[]>([])
+  const [selectedTrack, setSelectedTrack] = useState<GeneratedTrack | null>(null)
+  const [isLoadingTrackDetails, setIsLoadingTrackDetails] = useState(false)
+
+  const audioPlayer = useAudioPlayer()
 
   // Function to fetch recent tracks
   const fetchRecentTracks = useCallback(async () => {
     try {
       const response = await fetch("/api/recent-tracks?limit=3")
+
+      if (!response.ok) {
+        console.error("Failed to fetch recent tracks:", response.status)
+        return
+      }
+
       const data = await response.json()
       if (data.tracks) {
         setRecentTracks(data.tracks)
@@ -150,10 +171,77 @@ export default function Component() {
     }
   }, [])
 
+  // Function to fetch track details
+  const fetchTrackDetails = useCallback(async (trackId: string) => {
+    setIsLoadingTrackDetails(true)
+    try {
+      const response = await fetch(`/api/generate-music?id=${trackId}`)
+
+      if (!response.ok) {
+        console.error("Failed to fetch track details:", response.status)
+        return null
+      }
+
+      const data = await response.json()
+      if (data.track) {
+        setSelectedTrack(data.track)
+      }
+    } catch (error) {
+      console.error("Failed to fetch track details:", error)
+    } finally {
+      setIsLoadingTrackDetails(false)
+    }
+  }, [])
+
+  // Function to refresh track status (for manual refresh)
+  const refreshTrackStatus = useCallback(
+    async (trackId: string) => {
+      try {
+        const response = await fetch(`/api/generate-music?id=${trackId}`)
+        const data = await response.json()
+
+        if (data.track) {
+          // Update generated tracks
+          setGeneratedTracks((prev) =>
+            prev.map((track) => (track.id === trackId ? { ...track, ...data.track } : track)),
+          )
+
+          // Update selected track if it's the same one
+          if (selectedTrack?.id === trackId) {
+            setSelectedTrack((prev) => (prev ? { ...prev, ...data.track } : null))
+          }
+
+          // Refresh recent tracks if status changed to completed
+          if (data.track.status === "completed") {
+            fetchRecentTracks()
+          }
+        }
+      } catch (error) {
+        console.error("Failed to refresh track status:", error)
+      }
+    },
+    [selectedTrack?.id, fetchRecentTracks],
+  )
+
   // Fetch recent tracks on component mount
   useEffect(() => {
     fetchRecentTracks()
   }, [fetchRecentTracks])
+
+  // Auto-refresh generating tracks every 30 seconds as fallback
+  useEffect(() => {
+    const generatingTracks = generatedTracks.filter((track) => track.status === "generating")
+
+    if (generatingTracks.length === 0) return
+
+    const interval = setInterval(() => {
+      generatingTracks.forEach((track) => {
+        refreshTrackStatus(track.id)
+      })
+    }, 30000) // Check every 30 seconds
+
+    return () => clearInterval(interval)
+  }, [generatedTracks, refreshTrackStatus])
 
   // Close suggestions when clicking outside
   useEffect(() => {
@@ -166,7 +254,7 @@ export default function Component() {
     return () => document.removeEventListener("mousedown", handleClickOutside)
   }, [])
 
-  const fetchTrackDetails = async (trackId: string): Promise<SpotifyTrack | null> => {
+  const fetchSpotifyTrackDetails = async (trackId: string): Promise<SpotifyTrack | null> => {
     try {
       const response = await fetch("/api/spotify/search", {
         method: "POST",
@@ -200,7 +288,7 @@ export default function Component() {
     setLoadingDetails(track.id)
 
     // Try to fetch detailed track information
-    const detailedTrack = await fetchTrackDetails(track.id)
+    const detailedTrack = await fetchSpotifyTrackDetails(track.id)
 
     if (detailedTrack) {
       setSelectedSongs((prev) => [...prev, detailedTrack])
@@ -238,6 +326,10 @@ export default function Component() {
       const data = await response.json()
 
       if (!response.ok) {
+        // Handle specific error cases
+        if (response.status === 500 && data.error?.includes("not configured")) {
+          throw new Error("Service not properly configured. Please check your API keys.")
+        }
         throw new Error(data.error || "Failed to generate music")
       }
 
@@ -248,11 +340,10 @@ export default function Component() {
         setDescription("")
         setSelectedSongs([])
 
-        // Start polling for completion status
-        pollTrackStatus(data.track.id)
-
-        // Refresh recent tracks after successful generation
-        fetchRecentTracks()
+        // Refresh recent tracks after successful generation start
+        setTimeout(() => {
+          fetchRecentTracks()
+        }, 2000)
       }
     } catch (error) {
       console.error("Generation error:", error)
@@ -262,41 +353,16 @@ export default function Component() {
     }
   }
 
-  const pollTrackStatus = async (trackId: string) => {
-    const maxAttempts = 30 // Poll for up to 5 minutes (30 * 10 seconds)
-    let attempts = 0
-
-    const poll = async () => {
-      try {
-        const response = await fetch(`/api/generate-music?id=${trackId}`)
-        const data = await response.json()
-
-        if (data.track) {
-          setGeneratedTracks((prev) =>
-            prev.map((track) => (track.id === trackId ? { ...track, ...data.track } : track)),
-          )
-
-          // Stop polling if completed or failed
-          if (data.track.status === "completed" || data.track.status === "failed") {
-            return
-          }
-        }
-
-        attempts++
-        if (attempts < maxAttempts) {
-          setTimeout(poll, 10000) // Poll every 10 seconds
-        }
-      } catch (error) {
-        console.error("Status polling error:", error)
-      }
+  const handleSelectTrack = (track: GeneratedTrack) => {
+    if (selectedTrack?.id === track.id) {
+      setSelectedTrack(null)
+    } else {
+      fetchTrackDetails(track.id)
     }
-
-    // Start polling after a short delay
-    setTimeout(poll, 5000)
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-fuchsia-700 to-cyan-500">
+    <div className="min-h-screen bg-gradient-to-br from-cyan-950 via-fuchsia-700 to-cyan-500">
       {/* Header */}
       <header className="backdrop-blur-sm">
         <div className="container mx-auto px-4 py-4">
@@ -634,13 +700,21 @@ export default function Component() {
                         <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg flex items-center justify-center">
                           <Music className="w-6 h-6 text-white" />
                         </div>
-                        <div>
+                        <div className="flex-1">
                           <p className="text-white text-sm font-medium">{track.title}</p>
                           <div className="flex items-center space-x-2 mt-1">
                             {track.status === "generating" && (
                               <>
                                 <Loader2 className="w-3 h-3 text-orange-400 animate-spin" />
                                 <span className="text-orange-400 text-xs">Generating...</span>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-5 px-2 text-xs text-slate-400 hover:text-orange-400"
+                                  onClick={() => refreshTrackStatus(track.id)}
+                                >
+                                  Refresh
+                                </Button>
                               </>
                             )}
                             {track.status === "completed" && (
@@ -654,9 +728,31 @@ export default function Component() {
                               <>
                                 <AlertCircle className="w-3 h-3 text-red-400" />
                                 <span className="text-red-400 text-xs">Failed</span>
+                                {track.error_message && (
+                                  <span className="text-red-400 text-xs">• {track.error_message}</span>
+                                )}
                               </>
                             )}
                           </div>
+                          {/* Progress bar for currently playing track */}
+                          {audioPlayer.currentTrackId === track.id && audioPlayer.duration > 0 && (
+                            <div className="mt-2">
+                              <Progress
+                                value={(audioPlayer.currentTime / audioPlayer.duration) * 100}
+                                className="h-1"
+                              />
+                              <p className="text-slate-500 text-xs mt-1">
+                                {Math.floor(audioPlayer.currentTime / 60)}:
+                                {String(Math.floor(audioPlayer.currentTime % 60)).padStart(2, "0")} /
+                                {Math.floor(audioPlayer.duration / 60)}:
+                                {String(Math.floor(audioPlayer.duration % 60)).padStart(2, "0")}
+                              </p>
+                            </div>
+                          )}
+                          {/* Error message */}
+                          {audioPlayer.error && audioPlayer.currentTrackId === track.id && (
+                            <p className="text-red-400 text-xs mt-1">{audioPlayer.error}</p>
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center space-x-2">
@@ -665,22 +761,37 @@ export default function Component() {
                             <Button
                               size="sm"
                               variant="ghost"
-                              className="w-8 h-8 p-0 text-slate-400 hover:text-green-400"
-                              onClick={() => {
-                                // In a real implementation, this would play the audio
-                                console.log("Playing:", track.file_url)
-                              }}
+                              className={`w-8 h-8 p-0 transition-colors ${
+                                audioPlayer.currentTrackId === track.id && audioPlayer.isPlaying
+                                  ? "text-green-300 hover:text-green-200"
+                                  : "text-slate-400 hover:text-green-400"
+                              }`}
+                              onClick={() => audioPlayer.playTrack(track.id, track.file_url!)}
+                              disabled={audioPlayer.isLoading && audioPlayer.currentTrackId === track.id}
                             >
-                              <Play className="w-4 h-4" />
+                              {audioPlayer.isLoading && audioPlayer.currentTrackId === track.id ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : audioPlayer.currentTrackId === track.id && audioPlayer.isPlaying ? (
+                                <div className="w-4 h-4 flex items-center justify-center">
+                                  <div className="w-1 h-3 bg-current rounded-full mr-0.5 animate-pulse"></div>
+                                  <div
+                                    className="w-1 h-4 bg-current rounded-full mr-0.5 animate-pulse"
+                                    style={{ animationDelay: "0.1s" }}
+                                  ></div>
+                                  <div
+                                    className="w-1 h-2 bg-current rounded-full animate-pulse"
+                                    style={{ animationDelay: "0.2s" }}
+                                  ></div>
+                                </div>
+                              ) : (
+                                <Play className="w-4 h-4" />
+                              )}
                             </Button>
                             <Button
                               size="sm"
                               variant="ghost"
                               className="w-8 h-8 p-0 text-slate-400 hover:text-blue-400"
-                              onClick={() => {
-                                // In a real implementation, this would download the file
-                                window.open(track.file_url, "_blank")
-                              }}
+                              onClick={() => window.open(track.file_url, "_blank")}
                             >
                               <Download className="w-4 h-4" />
                             </Button>
@@ -695,95 +806,333 @@ export default function Component() {
           </Card>
         )}
 
-        {/* Recent Generations */}
-        <Card className="bg-slate-800/50 border-slate-700/50 backdrop-blur-sm">
-          <CardHeader>
-            <CardTitle className="text-white text-lg">Recent Generations</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {recentTracks.length > 0 ? (
-              recentTracks.map((track) => (
-                <div
-                  key={track.id}
-                  className="flex items-center justify-between p-3 rounded-lg bg-slate-900/30 hover:bg-slate-900/50 transition-colors"
-                >
-                  <div className="flex items-center space-x-3">
-                    <Button size="sm" variant="ghost" className="w-8 h-8 p-0 text-orange-400 hover:text-orange-300">
-                      <Play className="w-4 h-4" />
-                    </Button>
-                    <div>
-                      <p className="text-white text-sm font-medium">{track.title}</p>
-                      <p className="text-slate-400 text-xs">
-                        {track.duration
-                          ? `${Math.floor(track.duration / 60)}:${String(track.duration % 60).padStart(2, "0")}`
-                          : "0:30"}
-                      </p>
+        {/* Recent Generations and Track Details Section */}
+        <div className={selectedTrack ? "grid grid-cols-1 md:grid-cols-2 gap-6" : ""}>
+          {/* Recent Generations */}
+          <Card className="bg-slate-800/50 border-slate-700/50 backdrop-blur-sm">
+            <CardHeader>
+              <CardTitle className="text-white text-lg">Recent Generations</CardTitle>
+              <CardDescription className="text-slate-400">Select a track to view details</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {recentTracks.length > 0 ? (
+                recentTracks.map((track) => (
+                  <div
+                    key={track.id}
+                    className={`flex items-center justify-between p-3 rounded-lg transition-colors cursor-pointer ${
+                      selectedTrack?.id === track.id
+                        ? "bg-slate-700/50 border border-purple-500/50"
+                        : "bg-slate-900/30 hover:bg-slate-900/50 border border-transparent"
+                    }`}
+                    onClick={() => handleSelectTrack(track)}
+                  >
+                    <div className="flex items-center space-x-3">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className={`w-8 h-8 p-0 transition-colors ${
+                          audioPlayer.currentTrackId === track.id && audioPlayer.isPlaying
+                            ? "text-orange-300 hover:text-orange-200"
+                            : "text-orange-400 hover:text-orange-300"
+                        }`}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          if (track.file_url) {
+                            audioPlayer.playTrack(track.id, track.file_url)
+                          } else {
+                            console.warn("No audio URL available for track:", track.id)
+                          }
+                        }}
+                        disabled={audioPlayer.isLoading && audioPlayer.currentTrackId === track.id}
+                      >
+                        {audioPlayer.isLoading && audioPlayer.currentTrackId === track.id ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : audioPlayer.currentTrackId === track.id && audioPlayer.isPlaying ? (
+                          <div className="w-4 h-4 flex items-center justify-center">
+                            <div className="w-1 h-3 bg-current rounded-full mr-0.5 animate-pulse"></div>
+                            <div
+                              className="w-1 h-4 bg-current rounded-full mr-0.5 animate-pulse"
+                              style={{ animationDelay: "0.1s" }}
+                            ></div>
+                            <div
+                              className="w-1 h-2 bg-current rounded-full animate-pulse"
+                              style={{ animationDelay: "0.2s" }}
+                            ></div>
+                          </div>
+                        ) : (
+                          <Play className="w-4 h-4" />
+                        )}
+                      </Button>
+                      <div className="flex-1">
+                        <p className="text-white text-sm font-medium">{track.title}</p>
+                        <div className="flex items-center space-x-2">
+                          <p className="text-slate-400 text-xs">
+                            {track.duration
+                              ? `${Math.floor(track.duration / 60)}:${String(track.duration % 60).padStart(2, "0")}`
+                              : "< 0:30"}
+                          </p>
+                          {audioPlayer.currentTrackId === track.id && audioPlayer.duration > 0 && (
+                            <>
+                              <span className="text-slate-500 text-xs">•</span>
+                              <p className="text-slate-500 text-xs">
+                                {Math.floor(audioPlayer.currentTime / 60)}:
+                                {String(Math.floor(audioPlayer.currentTime % 60)).padStart(2, "0")} /
+                                {Math.floor(audioPlayer.duration / 60)}:
+                                {String(Math.floor(audioPlayer.duration % 60)).padStart(2, "0")}
+                              </p>
+                            </>
+                          )}
+                        </div>
+                        {/* Progress bar for currently playing track */}
+                        {audioPlayer.currentTrackId === track.id && audioPlayer.duration > 0 && (
+                          <div className="mt-1">
+                            <Progress value={(audioPlayer.currentTime / audioPlayer.duration) * 100} className="h-1" />
+                          </div>
+                        )}
+                        {/* Error message */}
+                        {audioPlayer.error && audioPlayer.currentTrackId === track.id && (
+                          <p className="text-red-400 text-xs mt-1">{audioPlayer.error}</p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="w-8 h-8 p-0 text-slate-400 hover:text-pink-400"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          // Favorite functionality would go here
+                        }}
+                      >
+                        <Heart className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="w-8 h-8 p-0 text-slate-400 hover:text-green-400"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          if (track.file_url) {
+                            window.open(track.file_url, "_blank")
+                          }
+                        }}
+                      >
+                        <Download className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className={`w-8 h-8 p-0 text-slate-400 hover:text-purple-400 ${
+                          selectedTrack?.id === track.id ? "text-purple-400" : ""
+                        }`}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleSelectTrack(track)
+                        }}
+                      >
+                        <Info className="w-4 h-4" />
+                      </Button>
                     </div>
                   </div>
-                  <div className="flex items-center space-x-2">
-                    <Button size="sm" variant="ghost" className="w-8 h-8 p-0 text-slate-400 hover:text-pink-400">
-                      <Heart className="w-4 h-4" />
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="w-8 h-8 p-0 text-slate-400 hover:text-green-400"
-                      onClick={() => {
-                        if (track.file_url) {
-                          window.open(track.file_url, "_blank")
-                        }
-                      }}
-                    >
-                      <Download className="w-4 h-4" />
-                    </Button>
-                  </div>
+                ))
+              ) : (
+                <div className="text-center text-slate-400 py-4">
+                  <p className="text-sm">No recent generations yet</p>
+                  <p className="text-xs">Generate your first track to see it here!</p>
                 </div>
-              ))
-            ) : (
-              <div className="text-center text-slate-400 py-4">
-                <p className="text-sm">No recent generations yet</p>
-                <p className="text-xs">Generate your first track to see it here!</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+              )}
+            </CardContent>
+          </Card>
 
-        <Card className="bg-slate-800/50 border-slate-700/50 backdrop-blur-sm">
-          <CardHeader>
-            <CardTitle className="text-white text-lg">Popular This Week</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {[
-              { title: "Sunset Lounge", duration: "3:45", likes: 24 },
-              { title: "Urban Nights", duration: "2:58", likes: 19 },
-              { title: "Peaceful Morning", duration: "4:33", likes: 31 },
-            ].map((track, index) => (
-              <div
-                key={index}
-                className="flex items-center justify-between p-3 rounded-lg bg-slate-900/30 hover:bg-slate-900/50 transition-colors"
-              >
-                <div className="flex items-center space-x-3">
-                  <Button size="sm" variant="ghost" className="w-8 h-8 p-0 text-orange-400 hover:text-orange-300">
-                    <Play className="w-4 h-4" />
-                  </Button>
-                  <div>
-                    <p className="text-white text-sm font-medium">{track.title}</p>
-                    <p className="text-slate-400 text-xs">{track.duration}</p>
+          {/* Track Details - Only show when a track is selected */}
+          {selectedTrack && (
+            <Card className="bg-slate-800/50 border-slate-700/50 backdrop-blur-sm">
+              <CardHeader>
+                <CardTitle className="text-white text-lg flex items-center justify-between">
+                  <div className="flex items-center">
+                    <Info className="w-5 h-5 mr-2 text-purple-400" />
+                    Track Details
                   </div>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <Button size="sm" variant="ghost" className="w-8 h-8 p-0 text-slate-400 hover:text-pink-400">
-                    <Heart className="w-4 h-4" />
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-8 w-8 p-0 text-slate-400 hover:text-slate-300"
+                    onClick={() => setSelectedTrack(null)}
+                  >
+                    <X className="h-4 w-4" />
                   </Button>
-                  <span className="text-xs text-slate-400">{track.likes}</span>
-                  <Button size="sm" variant="ghost" className="w-8 h-8 p-0 text-slate-400 hover:text-green-400">
-                    <Download className="w-4 h-4" />
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {isLoadingTrackDetails ? (
+                  <div className="flex justify-center py-8">
+                    <Loader2 className="h-8 w-8 text-purple-400 animate-spin" />
+                  </div>
+                ) : (
+                  <>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-lg font-medium text-white">{selectedTrack.title}</h3>
+                        {selectedTrack.file_url && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="bg-purple-500/20 border-purple-500/50 hover:bg-purple-500/30 text-white"
+                            onClick={() => audioPlayer.playTrack(selectedTrack.id, selectedTrack.file_url!)}
+                          >
+                            {audioPlayer.currentTrackId === selectedTrack.id && audioPlayer.isPlaying ? (
+                              <div className="w-4 h-4 mr-2 flex items-center justify-center">
+                                <div className="w-1 h-3 bg-current rounded-full mr-0.5 animate-pulse"></div>
+                                <div
+                                  className="w-1 h-4 bg-current rounded-full mr-0.5 animate-pulse"
+                                  style={{ animationDelay: "0.1s" }}
+                                ></div>
+                                <div
+                                  className="w-1 h-2 bg-current rounded-full animate-pulse"
+                                  style={{ animationDelay: "0.2s" }}
+                                ></div>
+                              </div>
+                            ) : (
+                              <Play className="w-4 h-4 mr-2" />
+                            )}
+                            {audioPlayer.currentTrackId === selectedTrack.id && audioPlayer.isPlaying
+                              ? "Playing"
+                              : "Play Track"}
+                          </Button>
+                        )}
+                      </div>
+
+                      {/* Created date */}
+                      <div className="flex items-center text-sm text-slate-400">
+                        <Calendar className="w-4 h-4 mr-1" />
+                        {selectedTrack.created_at && (
+                          <span>
+                            Created on {format(new Date(selectedTrack.created_at), "MMM d, yyyy 'at' h:mm a")}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Description */}
+                      {selectedTrack.user_description && (
+                        <div className="mt-4">
+                          <h4 className="text-sm font-medium text-slate-300 mb-1">Prompt</h4>
+                          <p className="text-sm text-slate-400 bg-slate-900/50 p-3 rounded-md">
+                            {selectedTrack.user_description}
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Genres */}
+                      {selectedTrack.genres && selectedTrack.genres.length > 0 && (
+                        <div className="mt-4">
+                          <h4 className="text-sm font-medium text-slate-300 mb-2">Genres</h4>
+                          <div className="flex flex-wrap gap-2">
+                            {selectedTrack.genres.map((genre, index) => (
+                              <Badge
+                                key={index}
+                                variant="outline"
+                                className="text-xs border-purple-400/30 text-purple-300 bg-purple-400/5"
+                              >
+                                {genre}
+                              </Badge>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Audio characteristics */}
+                      {(selectedTrack.energy !== undefined ||
+                        selectedTrack.valence !== undefined ||
+                        selectedTrack.tempo !== undefined) && (
+                        <div className="mt-4">
+                          <h4 className="text-sm font-medium text-slate-300 mb-2">Audio Characteristics</h4>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            {selectedTrack.energy !== undefined && (
+                              <div>
+                                <div className="flex justify-between items-center mb-1">
+                                  <span className="text-xs text-slate-400 flex items-center">
+                                    <Zap className="w-3 h-3 mr-1 text-yellow-400" />
+                                    Energy
+                                  </span>
+                                  <span className="text-xs text-white">
+                                    {getFeatureLabel("energy", selectedTrack.energy)}
+                                  </span>
+                                </div>
+                                <Progress value={selectedTrack.energy * 100} className="h-1" />
+                              </div>
+                            )}
+
+                            {selectedTrack.valence !== undefined && (
+                              <div>
+                                <div className="flex justify-between items-center mb-1">
+                                  <span className="text-xs text-slate-400 flex items-center">
+                                    <HeartIcon className="w-3 h-3 mr-1 text-pink-400" />
+                                    Mood
+                                  </span>
+                                  <span className="text-xs text-white">
+                                    {getFeatureLabel("valence", selectedTrack.valence)}
+                                  </span>
+                                </div>
+                                <Progress value={selectedTrack.valence * 100} className="h-1" />
+                              </div>
+                            )}
+
+                            {selectedTrack.tempo !== undefined && (
+                              <div className="sm:col-span-2">
+                                <div className="flex items-center space-x-1 mb-1">
+                                  <Clock className="w-3 h-3 text-blue-400" />
+                                  <span className="text-xs text-slate-400">Tempo:</span>
+                                  <span className="text-xs text-white">{selectedTrack.tempo} BPM</span>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Inspiration tracks */}
+                      {selectedTrack.selected_songs && selectedTrack.selected_songs.length > 0 && (
+                        <div className="mt-4">
+                          <h4 className="text-sm font-medium text-slate-300 mb-2">Inspiration</h4>
+                          <div className="space-y-2">
+                            {selectedTrack.selected_songs.map((song: any, index: number) => (
+                              <div key={index} className="flex items-center p-2 bg-slate-900/30 rounded-md">
+                                {song.image && (
+                                  <img
+                                    src={song.image || "/placeholder.svg"}
+                                    alt={song.name}
+                                    className="w-8 h-8 rounded object-cover mr-3"
+                                  />
+                                )}
+                                <div>
+                                  <p className="text-xs font-medium text-white">{song.name}</p>
+                                  <p className="text-xs text-slate-400">{song.artist}</p>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Generation parameters */}
+                      {selectedTrack.generation_params && (
+                        <div className="mt-4">
+                          <h4 className="text-sm font-medium text-slate-300 mb-2">Generation Parameters</h4>
+                          <div className="bg-slate-900/30 p-3 rounded-md">
+                            <pre className="text-xs text-slate-400 whitespace-pre-wrap">
+                              {JSON.stringify(selectedTrack.generation_params, null, 2)}
+                            </pre>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          )}
+        </div>
       </main>
 
       {/* Footer */}
