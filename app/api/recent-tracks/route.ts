@@ -6,39 +6,8 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const limit = Number.parseInt(searchParams.get("limit") || "3")
 
-    // Check if we have Supabase credentials
     if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-      console.log("No Supabase credentials found, using placeholder data")
-
-      // Generate some realistic placeholder data
-      const placeholderTracks = [
-        {
-          id: "1",
-          title: "Dreamy Midnight Piano",
-          duration: 154,
-          status: "completed",
-          created_at: new Date(Date.now() - 3600000).toISOString(), // 1 hour ago
-          file_url: "https://fake-storage.com/music/1.mp3",
-        },
-        {
-          id: "2",
-          title: "Nostalgic Evening Jazz",
-          duration: 201,
-          status: "completed",
-          created_at: new Date(Date.now() - 7200000).toISOString(), // 2 hours ago
-          file_url: "https://fake-storage.com/music/2.mp3",
-        },
-        {
-          id: "3",
-          title: "Serene Ocean Vibes",
-          duration: 252,
-          status: "completed",
-          created_at: new Date(Date.now() - 10800000).toISOString(), // 3 hours ago
-          file_url: "https://fake-storage.com/music/3.mp3",
-        },
-      ]
-
-      return NextResponse.json({ tracks: placeholderTracks.slice(0, limit) })
+      return NextResponse.json({ error: "Supabase not configured" }, { status: 500 })
     }
 
     // Query the database for recent completed tracks
