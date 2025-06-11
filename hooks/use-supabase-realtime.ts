@@ -27,6 +27,13 @@ export function useSupabaseRealtime({
   // Function to create and set up the channel
   const setupChannel = useCallback(() => {
     try {
+      // Check if Supabase client is available
+      if (!supabase) {
+        setError("Supabase client not available")
+        setIsConnected(false)
+        return null
+      }
+
       // Clean up any existing channel
       if (channel) {
         channel.unsubscribe()

@@ -1,6 +1,28 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { supabaseAdmin } from "@/lib/supabase"
+import { createClient } from "@supabase/supabase-js"
 import crypto from "crypto"
+
+// Ensure we have a Supabase admin client for server-side operations
+const getSupabaseAdmin = () => {
+  // If the supabaseAdmin is already initialized, use it
+  if (supabaseAdmin) return supabaseAdmin
+
+  // Otherwise, create a new client for this request
+  const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+  if (!supabaseUrl || !supabaseServiceKey) {
+    throw new Error("Supabase credentials not configured")
+  }
+
+  return createClient(supabaseUrl, supabaseServiceKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  })
+}
 
 // Function to verify Replicate webhook signature
 function verifyWebhookSignature(body: string, signature: string, secret: string): boolean {
@@ -24,6 +46,7 @@ function verifyWebhookSignature(body: string, signature: string, secret: string)
 async function uploadToSupabaseStorage(audioUrl: string, fileName: string) {
   try {
     console.log("Downloading audio from:", audioUrl)
+    const supabase = getSupabaseAdmin()
 
     // Download the audio file from Replicate with proper error handling
     const audioResponse = await fetch(audioUrl, {
@@ -38,7 +61,7 @@ async function uploadToSupabaseStorage(audioUrl: string, fileName: string) {
     console.log("Audio downloaded, size:", audioBuffer.byteLength, "bytes")
 
     // Upload to Supabase storage
-    const { data, error } = await supabaseAdmin.storage.from("music").upload(fileName, audioBuffer, {
+    const { data, error } = await supabase.storage.from("music").upload(fileName, audioBuffer, {
       contentType: "audio/mpeg",
       cacheControl: "3600",
       upsert: false,
@@ -51,7 +74,7 @@ async function uploadToSupabaseStorage(audioUrl: string, fileName: string) {
     console.log("File uploaded to Supabase:", data.path)
 
     // Get the public URL
-    const { data: publicUrlData } = supabaseAdmin.storage.from("music").getPublicUrl(fileName)
+    const { data: publicUrlData } = supabase.storage.from("music").getPublicUrl(fileName)
 
     return {
       path: data.path,
@@ -66,7 +89,8 @@ async function uploadToSupabaseStorage(audioUrl: string, fileName: string) {
 // Function to update a track record in Supabase
 async function updateTrackRecord(id: string, updates: any) {
   try {
-    const { data, error } = await supabaseAdmin.from("tracks").update(updates).eq("id", id).select().single()
+    const supabase = getSupabaseAdmin()
+    const { data, error } = await supabase.from("tracks").update(updates).eq("id", id).select().single()
 
     if (error) {
       throw new Error(`Database error: ${error.message}`)
@@ -83,8 +107,9 @@ async function updateTrackRecord(id: string, updates: any) {
 // Function to broadcast track status change
 async function broadcastTrackUpdate(track: any) {
   try {
+    const supabase = getSupabaseAdmin()
     // Broadcast to the specific track channel
-    const { error } = await supabaseAdmin.from("track_updates").insert([
+    const { error } = await supabase.from("track_updates").insert([
       {
         track_id: track.id,
         status: track.status,
@@ -148,8 +173,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Missing prediction ID" }, { status: 400 })
     }
 
+    const supabase = getSupabaseAdmin()
+
     // Find the track record by replicate_prediction_id
-    const { data: tracks, error: fetchError } = await supabaseAdmin
+    const { data: tracks, error: fetchError } = await supabase
       .from("tracks")
       .select("*")
       .eq("replicate_prediction_id", predictionId)

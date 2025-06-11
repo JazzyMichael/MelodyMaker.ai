@@ -11,9 +11,9 @@ import { Progress } from "@/components/ui/progress"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Search, Music, Play, Download, Heart, Headphones, Bell } from "lucide-react"
 import { useAudioPlayer } from "./hooks/use-audio-player"
-import { useSupabaseRealtime } from "./hooks/use-supabase-realtime"
 import { toast } from "@/components/ui/use-toast"
 import { ToastAction } from "@/components/ui/toast"
+import { createClientComponentClient } from "@supabase/auth-helpers-nextjs"
 
 interface AudioFeatures {
   danceability: number
@@ -153,80 +153,119 @@ export default function Component() {
   const [selectedSongs, setSelectedSongs] = useState<SpotifyTrack[]>([])
   const [loadingDetails, setLoadingDetails] = useState<string | null>(null)
   const [description, setDescription] = useState("")
-  const [isGenerating, setIsGenerating] = useState(false)
   const [generatedTracks, setGeneratedTracks] = useState<GeneratedTrack[]>([])
   const [generationError, setGenerationError] = useState<string | null>(null)
   const [recentTracks, setRecentTracks] = useState<GeneratedTrack[]>([])
   const [selectedTrack, setSelectedTrack] = useState<GeneratedTrack | null>(null)
   const [isLoadingTrackDetails, setIsLoadingTrackDetails] = useState(false)
   const [hasNewNotifications, setHasNewNotifications] = useState(false)
+  const [isGenerating, setIsGenerating] = useState(false)
 
   const audioPlayer = useAudioPlayer()
 
   // Function to handle track updates from Supabase Realtime
-  const handleTrackUpdate = useCallback((payload: any) => {
-    const update = payload.new as TrackUpdate
-    
-    if (!update || !update.track_id) return
-    
-    console.log("Received track update:", update)
-    
-    // Show a toast notification
-    toast({
-      title: update.status === "completed" ? "Music Ready!" : 
-             update.status === "failed" ? "Generation Failed" : 
-             "Status Update",
-      description: update.message || `Track status changed to ${update.status}`,
-      variant: update.status === "completed" ? "default" : 
-               update.status === "failed" ? "destructive" : 
-               "default",
-      action: update.status === "completed" ? (
-        <ToastAction altText="Play" onClick={() => fetchTrackDetails(update.track_id)}>
-          View
-        </ToastAction>
-      ) : undefined,
-    })
-    
-    // Set notification indicator
-    setHasNewNotifications(true)
-    
-    // Update generated tracks if we have them in state
-    setGeneratedTracks((prev) => {
-      const updatedTracks = [...prev]
-      const trackIndex = updatedTracks.findIndex(t => t.id === update.track_id)
-      
-      if (trackIndex >= 0) {
-        // Fetch the latest track data to get all details
-        fetchTrackDetails(update.track_id)
-          .then(trackData => {
+  const handleTrackUpdate = useCallback(
+    (payload: any) => {
+      const update = payload.new as TrackUpdate
+
+      if (!update || !update.track_id) return
+
+      console.log("Received track update:", update)
+
+      // Show a toast notification
+      toast({
+        title:
+          update.status === "completed"
+            ? "Music Ready!"
+            : update.status === "failed"
+              ? "Generation Failed"
+              : "Status Update",
+        description: update.message || `Track status changed to ${update.status}`,
+        variant: update.status === "completed" ? "default" : update.status === "failed" ? "destructive" : "default",
+        action:
+          update.status === "completed" ? (
+            <ToastAction altText="Play" onClick={() => fetchTrackDetails(update.track_id)}>
+              View
+            </ToastAction>
+          ) : undefined,
+      })
+
+      // Set notification indicator
+      setHasNewNotifications(true)
+
+      // Update generated tracks if we have them in state
+      setGeneratedTracks((prev) => {
+        const updatedTracks = [...prev]
+        const trackIndex = updatedTracks.findIndex((t) => t.id === update.track_id)
+
+        if (trackIndex >= 0) {
+          // Fetch the latest track data to get all details
+          fetchTrackDetails(update.track_id).then((trackData) => {
             if (trackData) {
-              setGeneratedTracks(current => 
-                current.map(t => t.id === update.track_id ? trackData : t)
-              )
-              
+              setGeneratedTracks((current) => current.map((t) => (t.id === update.track_id ? trackData : t)))
+
               // If this is the selected track, update it too
               if (selectedTrack?.id === update.track_id) {
                 setSelectedTrack(trackData)
               }
             }
           })
+        }
+
+        return updatedTracks
+      })
+
+      // Refresh recent tracks if status is completed
+      if (update.status === "completed") {
+        fetchRecentTracks()
       }
-      
-      return updatedTracks
-    })
-    
-    // Refresh recent tracks if status is completed
-    if (update.status === "completed") {
-      fetchRecentTracks()
-    }
-  }, [selectedTrack])
+    },
+    [selectedTrack, fetchTrackDetails, fetchRecentTracks],
+  )
 
   // Subscribe to track updates
-  const { isConnected: isRealtimeConnected, error: realtimeError } = useSupabaseRealtime({
-    tableName: "track_updates",
-    event: "INSERT",
-    onEvent: handleTrackUpdate,
-  })
+  // Check if Supabase client is available
+  const supabase = createClientComponentClient()
+  const [supabaseAvailable, setSupabaseAvailable] = useState(false)
+  const [isRealtimeConnected, setIsRealtimeConnected] = useState(false)
+  const [realtimeError, setRealtimeError] = useState<string | null>(null)
+
+  useEffect(() => {
+    const checkSupabase = async () => {
+      try {
+        // Attempt to connect to Supabase
+        await supabase.from("track_updates").select("*").limit(1)
+        setSupabaseAvailable(true)
+
+        // Subscribe to track updates if Supabase is available
+        if (supabaseAvailable) {
+          const subscription = supabase
+            .channel("track_updates")
+            .on("postgres_changes", { event: "INSERT", schema: "public", table: "track_updates" }, handleTrackUpdate)
+            .subscribe((status) => {
+              if (status === "SUBSCRIBED") {
+                setIsRealtimeConnected(true)
+                setRealtimeError(null)
+              } else if (status === "CHANNEL_ERROR" || status === "CLOSED") {
+                setIsRealtimeConnected(false)
+                setRealtimeError("Supabase Realtime connection error")
+              }
+            })
+
+          return () => {
+            supabase.removeChannel(subscription)
+          }
+        }
+      } catch (error: any) {
+        console.error("Supabase client not available", error)
+        setSupabaseAvailable(false)
+        setIsRealtimeConnected(false)
+        setRealtimeError(error.message || "Supabase client not available")
+      }
+    }
+
+    checkSupabase()
+  }, [handleTrackUpdate, supabase, supabaseAvailable])
 
   // Function to fetch recent tracks
   const fetchRecentTracks = useCallback(async () => {
@@ -294,7 +333,7 @@ export default function Component() {
           if (data.track.status === "completed") {
             fetchRecentTracks()
           }
-          
+
           return data.track
         }
         return null
@@ -428,7 +467,7 @@ export default function Component() {
     } else {
       fetchTrackDetails(track.id)
     }
-    
+
     // Clear notification indicator when viewing tracks
     setHasNewNotifications(false)
   }
@@ -453,7 +492,7 @@ export default function Component() {
                 <Headphones className="w-3 h-3 mr-1" />
                 Beta
               </Badge>
-              
+
               {/* Realtime connection status */}
               {realtimeError ? (
                 <Badge variant="destructive" className="bg-red-900/50 text-red-300 border-red-700/50">
@@ -471,7 +510,7 @@ export default function Component() {
                   Connecting
                 </Badge>
               )}
-              
+
               {/* Notification indicator */}
               {hasNewNotifications && (
                 <div className="relative">
@@ -777,7 +816,7 @@ export default function Component() {
                 )}
               </Button>
             </div>
-            
+
             {/* Realtime status indicator */}
             <div className="flex items-center justify-center text-xs text-slate-400 mt-2">
               {realtimeError ? (
@@ -1078,4 +1117,108 @@ export default function Component() {
                 <CardTitle className="text-white text-lg flex items-center justify-between">
                   <div className="flex items-center">
                     <Info className="w-5 h-5 mr-2 text-purple-400" />
-                    Track Details\
+                    Track Details
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="w-8 h-8 p-0 text-slate-400 hover:text-red-400"
+                    onClick={() => setSelectedTrack(null)}
+                  >
+                    <X className="w-4 h-4" />
+                  </Button>
+                </CardTitle>
+                <CardDescription className="text-slate-400">Details about the selected track</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {isLoadingTrackDetails ? (
+                  <div className="text-center text-slate-400 py-4">
+                    <Loader2 className="w-6 h-6 mx-auto animate-spin mb-2" />
+                    <p className="text-sm">Loading track details...</p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="space-y-2">
+                      <p className="text-white text-sm font-medium">
+                        {selectedTrack.title}
+                        {selectedTrack.status === "generating" && (
+                          <Badge variant="secondary" className="ml-2">
+                            Generating
+                          </Badge>
+                        )}
+                        {selectedTrack.status === "completed" && (
+                          <Badge variant="outline" className="ml-2">
+                            Completed
+                          </Badge>
+                        )}
+                        {selectedTrack.status === "failed" && (
+                          <Badge variant="destructive" className="ml-2">
+                            Failed
+                          </Badge>
+                        )}
+                      </p>
+                      <p className="text-slate-400 text-sm">
+                        Created at: {new Date(selectedTrack.created_at).toLocaleDateString()}
+                      </p>
+                      {selectedTrack.estimated_completion && (
+                        <p className="text-slate-400 text-sm">
+                          Estimated completion: {selectedTrack.estimated_completion}
+                        </p>
+                      )}
+                      {selectedTrack.duration && (
+                        <p className="text-slate-400 text-sm">Duration: {selectedTrack.duration} seconds</p>
+                      )}
+                    </div>
+
+                    {selectedTrack.user_description && (
+                      <div className="space-y-2">
+                        <h4 className="text-white text-md font-medium">User Description</h4>
+                        <p className="text-slate-400 text-sm">{selectedTrack.user_description}</p>
+                      </div>
+                    )}
+
+                    {selectedTrack.description && (
+                      <div className="space-y-2">
+                        <h4 className="text-white text-md font-medium">AI Description</h4>
+                        <p className="text-slate-400 text-sm">{selectedTrack.description}</p>
+                      </div>
+                    )}
+
+                    {selectedTrack.selected_songs && selectedTrack.selected_songs.length > 0 && (
+                      <div className="space-y-2">
+                        <h4 className="text-white text-md font-medium">Selected Songs</h4>
+                        <ul className="list-disc list-inside text-slate-400 text-sm">
+                          {selectedTrack.selected_songs.map((song: any) => (
+                            <li key={song.id}>{song.name}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {selectedTrack.generation_params && (
+                      <div className="space-y-2">
+                        <h4 className="text-white text-md font-medium">Generation Parameters</h4>
+                        <pre className="text-slate-400 text-xs overflow-x-auto">
+                          {JSON.stringify(selectedTrack.generation_params, null, 2)}
+                        </pre>
+                      </div>
+                    )}
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      </main>
+
+      {/* Footer */}
+      <footer className="bg-slate-900/50 backdrop-blur-sm py-6">
+        <div className="container mx-auto px-4 text-center">
+          <p className="text-slate-400 text-sm">
+            &copy; {new Date().getFullYear()} MelodyMaker.ai. All rights reserved.
+          </p>
+        </div>
+      </footer>
+    </div>
+  )
+}
