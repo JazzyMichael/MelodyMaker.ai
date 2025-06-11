@@ -1,6 +1,28 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { supabaseAdmin } from "@/lib/supabase"
+import { createClient } from "@supabase/supabase-js"
 import Replicate from "replicate"
+
+// Ensure we have a Supabase admin client for server-side operations
+const getSupabaseAdmin = () => {
+  // If the supabaseAdmin is already initialized, use it
+  if (supabaseAdmin) return supabaseAdmin
+
+  // Otherwise, create a new client for this request
+  const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+  if (!supabaseUrl || !supabaseServiceKey) {
+    throw new Error("Supabase credentials not configured")
+  }
+
+  return createClient(supabaseUrl, supabaseServiceKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  })
+}
 
 // Types for the request
 interface SelectedSong {
@@ -249,7 +271,8 @@ async function generateMusicWithReplicate(prompt: string, trackId: string, durat
 // Function to create a track record in Supabase
 async function createTrackRecord(data: any) {
   try {
-    const { data: track, error } = await supabaseAdmin.from("tracks").insert([data]).select().single()
+    const supabase = getSupabaseAdmin()
+    const { data: track, error } = await supabase.from("tracks").insert([data]).select().single()
 
     if (error) {
       throw new Error(`Database error: ${error.message}`)
@@ -266,7 +289,8 @@ async function createTrackRecord(data: any) {
 // Function to update a track record in Supabase
 async function updateTrackRecord(id: string, updates: any) {
   try {
-    const { data, error } = await supabaseAdmin.from("tracks").update(updates).eq("id", id).select().single()
+    const supabase = getSupabaseAdmin()
+    const { data, error } = await supabase.from("tracks").update(updates).eq("id", id).select().single()
 
     if (error) {
       throw new Error(`Database error: ${error.message}`)
@@ -329,10 +353,6 @@ export async function POST(request: NextRequest) {
     // Check for required environment variables
     if (!process.env.REPLICATE_API_TOKEN) {
       return NextResponse.json({ error: "Replicate API not configured" }, { status: 500 })
-    }
-
-    if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-      return NextResponse.json({ error: "Supabase not configured" }, { status: 500 })
     }
 
     // Generate a random title based on the supplied data
@@ -431,23 +451,25 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Track ID is required" }, { status: 400 })
     }
 
-    if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-      return NextResponse.json({ error: "Supabase not configured" }, { status: 500 })
+    try {
+      const supabase = getSupabaseAdmin()
+      // Query the database for the track
+      const { data: track, error } = await supabase.from("tracks").select("*").eq("id", trackId).single()
+
+      if (error) {
+        console.error("Error fetching track:", error)
+        return NextResponse.json({ error: "Failed to fetch track" }, { status: 500 })
+      }
+
+      if (!track) {
+        return NextResponse.json({ error: "Track not found" }, { status: 404 })
+      }
+
+      return NextResponse.json({ track })
+    } catch (dbError) {
+      console.error("Database error:", dbError)
+      return NextResponse.json({ error: "Database error" }, { status: 500 })
     }
-
-    // Query the database for the track
-    const { data: track, error } = await supabaseAdmin.from("tracks").select("*").eq("id", trackId).single()
-
-    if (error) {
-      console.error("Error fetching track:", error)
-      return NextResponse.json({ error: "Failed to fetch track" }, { status: 500 })
-    }
-
-    if (!track) {
-      return NextResponse.json({ error: "Track not found" }, { status: 404 })
-    }
-
-    return NextResponse.json({ track })
   } catch (error) {
     console.error("Status check error:", error)
     return NextResponse.json(
