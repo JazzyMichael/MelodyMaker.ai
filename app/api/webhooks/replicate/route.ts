@@ -80,6 +80,34 @@ async function updateTrackRecord(id: string, updates: any) {
   }
 }
 
+// Function to broadcast track status change
+async function broadcastTrackUpdate(track: any) {
+  try {
+    // Broadcast to the specific track channel
+    const { error } = await supabaseAdmin.from("track_updates").insert([
+      {
+        track_id: track.id,
+        status: track.status,
+        updated_at: new Date().toISOString(),
+        message:
+          track.status === "completed"
+            ? "Your music is ready!"
+            : track.status === "failed"
+              ? "Music generation failed"
+              : "Status updated",
+      },
+    ])
+
+    if (error) {
+      console.error("Error broadcasting track update:", error)
+    } else {
+      console.log("Track update broadcast sent for track:", track.id)
+    }
+  } catch (error) {
+    console.error("Failed to broadcast track update:", error)
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     // Get the raw body for signature verification
@@ -160,7 +188,7 @@ export async function POST(request: NextRequest) {
         const storageResult = await uploadToSupabaseStorage(audioUrl, fileName)
 
         // Update track record with success
-        await updateTrackRecord(track.id, {
+        const updatedTrack = await updateTrackRecord(track.id, {
           status: "completed",
           file_url: storageResult.publicUrl,
           file_path: storageResult.path,
@@ -168,17 +196,23 @@ export async function POST(request: NextRequest) {
           updated_at: new Date().toISOString(),
         })
 
+        // Broadcast the track update
+        await broadcastTrackUpdate(updatedTrack)
+
         console.log("Successfully processed webhook for track:", track.id)
         return NextResponse.json({ success: true, message: "Track updated successfully" })
       } catch (uploadError) {
         console.error("Failed to upload or update track:", uploadError)
 
         // Update track record with failure
-        await updateTrackRecord(track.id, {
+        const failedTrack = await updateTrackRecord(track.id, {
           status: "failed",
           error_message: uploadError instanceof Error ? uploadError.message : "Failed to upload audio",
           updated_at: new Date().toISOString(),
         })
+
+        // Broadcast the failure
+        await broadcastTrackUpdate(failedTrack)
 
         return NextResponse.json({ error: "Failed to process audio" }, { status: 500 })
       }
@@ -186,21 +220,27 @@ export async function POST(request: NextRequest) {
       console.log("Generation failed or was canceled for track:", track.id)
 
       // Update track record with failure
-      await updateTrackRecord(track.id, {
+      const failedTrack = await updateTrackRecord(track.id, {
         status: "failed",
         error_message: predictionError || `Generation ${status}`,
         updated_at: new Date().toISOString(),
       })
+
+      // Broadcast the failure
+      await broadcastTrackUpdate(failedTrack)
 
       return NextResponse.json({ success: true, message: "Track marked as failed" })
     } else if (status === "starting" || status === "processing") {
       console.log("Generation in progress for track:", track.id, "status:", status)
 
       // Optionally update the track status to reflect current state
-      await updateTrackRecord(track.id, {
+      const updatingTrack = await updateTrackRecord(track.id, {
         status: "generating",
         updated_at: new Date().toISOString(),
       })
+
+      // Broadcast the status update
+      await broadcastTrackUpdate(updatingTrack)
 
       return NextResponse.json({ success: true, message: "Status updated" })
     } else {
