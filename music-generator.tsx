@@ -163,6 +163,50 @@ export default function Component() {
 
   const audioPlayer = useAudioPlayer()
 
+  // Function to fetch recent tracks
+  const fetchRecentTracks = useCallback(async () => {
+    try {
+      const response = await fetch("/api/recent-tracks?limit=3")
+
+      if (!response.ok) {
+        console.error("Failed to fetch recent tracks:", response.status)
+        return
+      }
+
+      const data = await response.json()
+      if (data.tracks) {
+        setRecentTracks(data.tracks)
+      }
+    } catch (error) {
+      console.error("Failed to fetch recent tracks:", error)
+    }
+  }, [])
+
+  // Function to fetch track details
+  const fetchTrackDetails = useCallback(async (trackId: string) => {
+    setIsLoadingTrackDetails(true)
+    try {
+      const response = await fetch(`/api/generate-music?id=${trackId}`)
+
+      if (!response.ok) {
+        console.error("Failed to fetch track details:", response.status)
+        return null
+      }
+
+      const data = await response.json()
+      if (data.track) {
+        setSelectedTrack(data.track)
+        return data.track
+      }
+      return null
+    } catch (error) {
+      console.error("Failed to fetch track details:", error)
+      return null
+    } finally {
+      setIsLoadingTrackDetails(false)
+    }
+  }, [])
+
   // Function to handle track updates from Supabase Realtime
   const handleTrackUpdate = useCallback(
     (payload: any) => {
@@ -266,50 +310,6 @@ export default function Component() {
 
     checkSupabase()
   }, [handleTrackUpdate, supabase, supabaseAvailable])
-
-  // Function to fetch recent tracks
-  const fetchRecentTracks = useCallback(async () => {
-    try {
-      const response = await fetch("/api/recent-tracks?limit=3")
-
-      if (!response.ok) {
-        console.error("Failed to fetch recent tracks:", response.status)
-        return
-      }
-
-      const data = await response.json()
-      if (data.tracks) {
-        setRecentTracks(data.tracks)
-      }
-    } catch (error) {
-      console.error("Failed to fetch recent tracks:", error)
-    }
-  }, [])
-
-  // Function to fetch track details
-  const fetchTrackDetails = useCallback(async (trackId: string) => {
-    setIsLoadingTrackDetails(true)
-    try {
-      const response = await fetch(`/api/generate-music?id=${trackId}`)
-
-      if (!response.ok) {
-        console.error("Failed to fetch track details:", response.status)
-        return null
-      }
-
-      const data = await response.json()
-      if (data.track) {
-        setSelectedTrack(data.track)
-        return data.track
-      }
-      return null
-    } catch (error) {
-      console.error("Failed to fetch track details:", error)
-      return null
-    } finally {
-      setIsLoadingTrackDetails(false)
-    }
-  }, [])
 
   // Function to refresh track status (for manual refresh)
   const refreshTrackStatus = useCallback(
