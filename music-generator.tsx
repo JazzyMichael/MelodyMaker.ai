@@ -783,7 +783,7 @@ export default function Component() {
         )}
 
         {/* Generation Section */}
-        <Card className="mb-8 bg-slate-800/50 border-slate-700/50 backdrop-blur-sm">
+        <Card className="mb-8 bg-slate-800/50 border-slate-700/50">
           <CardHeader>
             <CardTitle className="text-white flex items-center">
               <Music className="w-5 h-5 mr-2 text-purple-400" />
