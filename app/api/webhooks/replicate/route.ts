@@ -1,19 +1,28 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { supabaseAdmin } from "@/lib/supabase"
-import crypto from "crypto"
+import { createHmac, timingSafeEqual } from "node:crypto"
 
 // Function to verify Replicate webhook signature
-function verifyWebhookSignature(body: string, signature: string, secret: string): boolean {
+function verifyWebhookSignature(
+  body: string,
+  signature: string,
+  secret: string
+): boolean {
   if (!signature || !secret) {
     return false
   }
 
   try {
-    const expectedSignature = crypto.createHmac("sha256", secret).update(body, "utf8").digest("hex")
+    const expectedSignature = createHmac("sha256", secret)
+      .update(body, "utf8")
+      .digest("hex")
 
     const providedSignature = signature.replace("sha256=", "")
 
-    return crypto.timingSafeEqual(Buffer.from(expectedSignature, "hex"), Buffer.from(providedSignature, "hex"))
+    return timingSafeEqual(
+      Buffer.from(expectedSignature, "hex"),
+      Buffer.from(providedSignature, "hex")
+    )
   } catch (error) {
     console.error("Error verifying webhook signature:", error)
     return false
@@ -31,18 +40,22 @@ async function uploadToSupabaseStorage(audioUrl: string, fileName: string) {
     })
 
     if (!audioResponse.ok) {
-      throw new Error(`Failed to fetch audio: ${audioResponse.status} ${audioResponse.statusText}`)
+      throw new Error(
+        `Failed to fetch audio: ${audioResponse.status} ${audioResponse.statusText}`
+      )
     }
 
     const audioBuffer = await audioResponse.arrayBuffer()
     console.log("Audio downloaded, size:", audioBuffer.byteLength, "bytes")
 
     // Upload to Supabase storage
-    const { data, error } = await supabaseAdmin.storage.from("music").upload(fileName, audioBuffer, {
-      contentType: "audio/mpeg",
-      cacheControl: "3600",
-      upsert: false,
-    })
+    const { data, error } = await supabaseAdmin.storage
+      .from("music")
+      .upload(fileName, audioBuffer, {
+        contentType: "audio/mpeg",
+        cacheControl: "3600",
+        upsert: false,
+      })
 
     if (error) {
       throw new Error(`Supabase storage error: ${error.message}`)
@@ -51,7 +64,9 @@ async function uploadToSupabaseStorage(audioUrl: string, fileName: string) {
     console.log("File uploaded to Supabase:", data.path)
 
     // Get the public URL
-    const { data: publicUrlData } = supabaseAdmin.storage.from("music").getPublicUrl(fileName)
+    const { data: publicUrlData } = supabaseAdmin.storage
+      .from("music")
+      .getPublicUrl(fileName)
 
     return {
       path: data.path,
@@ -66,7 +81,12 @@ async function uploadToSupabaseStorage(audioUrl: string, fileName: string) {
 // Function to update a track record in Supabase
 async function updateTrackRecord(id: string, updates: any) {
   try {
-    const { data, error } = await supabaseAdmin.from("tracks").update(updates).eq("id", id).select().single()
+    const { data, error } = await supabaseAdmin
+      .from("tracks")
+      .update(updates)
+      .eq("id", id)
+      .select()
+      .single()
 
     if (error) {
       throw new Error(`Database error: ${error.message}`)
@@ -93,7 +113,10 @@ export async function POST(request: NextRequest) {
       const isValid = verifyWebhookSignature(body, signature, webhookSecret)
       if (!isValid) {
         console.error("Invalid webhook signature")
-        return NextResponse.json({ error: "Invalid signature" }, { status: 401 })
+        return NextResponse.json(
+          { error: "Invalid signature" },
+          { status: 401 }
+        )
       }
     }
 
@@ -113,11 +136,19 @@ export async function POST(request: NextRequest) {
     })
 
     // Extract prediction data
-    const { id: predictionId, status, output, error: predictionError } = webhookData
+    const {
+      id: predictionId,
+      status,
+      output,
+      error: predictionError,
+    } = webhookData
 
     if (!predictionId) {
       console.error("No prediction ID in webhook payload")
-      return NextResponse.json({ error: "Missing prediction ID" }, { status: 400 })
+      return NextResponse.json(
+        { error: "Missing prediction ID" },
+        { status: 400 }
+      )
     }
 
     // Find the track record by replicate_prediction_id
@@ -169,18 +200,27 @@ export async function POST(request: NextRequest) {
         })
 
         console.log("Successfully processed webhook for track:", track.id)
-        return NextResponse.json({ success: true, message: "Track updated successfully" })
+        return NextResponse.json({
+          success: true,
+          message: "Track updated successfully",
+        })
       } catch (uploadError) {
         console.error("Failed to upload or update track:", uploadError)
 
         // Update track record with failure
         await updateTrackRecord(track.id, {
           status: "failed",
-          error_message: uploadError instanceof Error ? uploadError.message : "Failed to upload audio",
+          error_message:
+            uploadError instanceof Error
+              ? uploadError.message
+              : "Failed to upload audio",
           updated_at: new Date().toISOString(),
         })
 
-        return NextResponse.json({ error: "Failed to process audio" }, { status: 500 })
+        return NextResponse.json(
+          { error: "Failed to process audio" },
+          { status: 500 }
+        )
       }
     } else if (status === "failed" || status === "canceled") {
       console.log("Generation failed or was canceled for track:", track.id)
@@ -192,9 +232,17 @@ export async function POST(request: NextRequest) {
         updated_at: new Date().toISOString(),
       })
 
-      return NextResponse.json({ success: true, message: "Track marked as failed" })
+      return NextResponse.json({
+        success: true,
+        message: "Track marked as failed",
+      })
     } else if (status === "starting" || status === "processing") {
-      console.log("Generation in progress for track:", track.id, "status:", status)
+      console.log(
+        "Generation in progress for track:",
+        track.id,
+        "status:",
+        status
+      )
 
       // Optionally update the track status to reflect current state
       await updateTrackRecord(track.id, {
@@ -213,7 +261,7 @@ export async function POST(request: NextRequest) {
       {
         error: error instanceof Error ? error.message : "Internal server error",
       },
-      { status: 500 },
+      { status: 500 }
     )
   }
 }
