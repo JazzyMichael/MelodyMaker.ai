@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { supabaseAdmin } from "@/lib/supabase"
+import { supabase } from "@/lib/supabase"
 import { createHmac, timingSafeEqual } from "node:crypto"
 
 // Function to verify Replicate webhook signature
@@ -49,7 +49,7 @@ async function uploadToSupabaseStorage(audioUrl: string, fileName: string) {
     console.log("Audio downloaded, size:", audioBuffer.byteLength, "bytes")
 
     // Upload to Supabase storage
-    const { data, error } = await supabaseAdmin.storage
+    const { data, error } = await supabase.storage
       .from("music")
       .upload(fileName, audioBuffer, {
         contentType: "audio/mpeg",
@@ -64,7 +64,7 @@ async function uploadToSupabaseStorage(audioUrl: string, fileName: string) {
     console.log("File uploaded to Supabase:", data.path)
 
     // Get the public URL
-    const { data: publicUrlData } = supabaseAdmin.storage
+    const { data: publicUrlData } = supabase.storage
       .from("music")
       .getPublicUrl(fileName)
 
@@ -81,7 +81,7 @@ async function uploadToSupabaseStorage(audioUrl: string, fileName: string) {
 // Function to update a track record in Supabase
 async function updateTrackRecord(id: string, updates: any) {
   try {
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await supabase
       .from("tracks")
       .update(updates)
       .eq("id", id)
@@ -98,6 +98,25 @@ async function updateTrackRecord(id: string, updates: any) {
     console.error("Error updating track record:", error)
     throw error
   }
+}
+
+// Function to broadcast a realtime message in Supabase
+async function broadcastRealtime(channel: string, message: any) {
+  supabase
+    .channel(channel)
+    .send({
+      type: "broadcast",
+      event: "update",
+      payload: message,
+    })
+    .then(() => {
+      console.log("Realtime message broadcasted:", channel, message)
+      return { success: true }
+    })
+    .catch((error) => {
+      console.error("Error broadcasting realtime message:", error)
+      return { success: false, error: error.message }
+    })
 }
 
 export async function POST(request: NextRequest) {
@@ -152,7 +171,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Find the track record by replicate_prediction_id
-    const { data: tracks, error: fetchError } = await supabaseAdmin
+    const { data: tracks, error: fetchError } = await supabase
       .from("tracks")
       .select("*")
       .eq("replicate_prediction_id", predictionId)
@@ -199,6 +218,14 @@ export async function POST(request: NextRequest) {
           updated_at: new Date().toISOString(),
         })
 
+        // send realtime broadcast
+        await broadcastRealtime("new-track", {
+          ...track,
+          status: "completed",
+          file_url: storageResult.publicUrl,
+          file_path: storageResult.path,
+        })
+
         console.log("Successfully processed webhook for track:", track.id)
         return NextResponse.json({
           success: true,
@@ -230,6 +257,13 @@ export async function POST(request: NextRequest) {
         status: "failed",
         error_message: predictionError || `Generation ${status}`,
         updated_at: new Date().toISOString(),
+      })
+
+      // send realtime broadcast
+      await broadcastRealtime("new-track", {
+        ...track,
+        status: "failed",
+        error_message: predictionError || `Generation ${status}`,
       })
 
       return NextResponse.json({
@@ -268,5 +302,9 @@ export async function POST(request: NextRequest) {
 
 // Handle other HTTP methods
 export async function GET() {
+  await broadcastRealtime("new-track", {
+    status: "test",
+    message: "This is a test message from the Replicate webhook endpoint",
+  })
   return NextResponse.json({ message: "Replicate webhook endpoint" })
 }

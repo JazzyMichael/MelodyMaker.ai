@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { supabaseAdmin } from "@/lib/supabase"
+import { supabase } from "@/lib/supabase"
 import Replicate from "replicate"
 
 // Types for the request
@@ -360,7 +360,7 @@ async function generateMusicWithReplicate(
 // Function to create a track record in Supabase
 async function createTrackRecord(data: any) {
   try {
-    const { data: track, error } = await supabaseAdmin
+    const { data: track, error } = await supabase
       .from("tracks")
       .insert([data])
       .select()
@@ -381,7 +381,7 @@ async function createTrackRecord(data: any) {
 // Function to update a track record in Supabase
 async function updateTrackRecord(id: string, updates: any) {
   try {
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await supabase
       .from("tracks")
       .update(updates)
       .eq("id", id)
@@ -591,7 +591,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Query the database for the track
-    const { data: track, error } = await supabaseAdmin
+    const { data: track, error } = await supabase
       .from("tracks")
       .select("*")
       .eq("id", trackId)

@@ -1,4 +1,4 @@
-import MusicGenerator from "../music-generator"
+import MusicGenerator from "@/components/music-generator"
 
 export default function Page() {
   return <MusicGenerator />

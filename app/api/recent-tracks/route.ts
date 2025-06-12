@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { supabaseAdmin } from "@/lib/supabase"
+import { supabase } from "@/lib/supabase"
 
 export async function GET(request: NextRequest) {
   try {
@@ -7,7 +7,7 @@ export async function GET(request: NextRequest) {
     const limit = Number.parseInt(searchParams.get("limit") || "3")
 
     // Query the database for recent completed tracks
-    const { data: tracks, error } = await supabaseAdmin
+    const { data: tracks, error } = await supabase
       .from("tracks")
       .select("id, title, duration, status, created_at, file_url")
       .eq("status", "completed")

@@ -33,9 +33,10 @@ import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { useAudioPlayer } from "./hooks/use-audio-player"
-import { useSpotifySearch } from "./hooks/use-spotify-search"
 import { format } from "date-fns"
+import { useAudioPlayer } from "@/hooks/use-audio-player"
+import { useSpotifySearch } from "@/hooks/use-spotify-search"
+import { useSupabaseBroadcastChannel } from "@/hooks/use-supabase-realtime"
 
 interface AudioFeatures {
   danceability: number
@@ -116,12 +117,11 @@ const getFeatureLabel = (feature: string, value: number) => {
 }
 
 export default function Component() {
-  const [showSuggestions, setShowSuggestions] = useState(false)
   const searchRef = useRef<HTMLDivElement>(null)
-  const { query, setQuery, results, isLoading, error, clearResults } =
-    useSpotifySearch()
+  const [showSuggestions, setShowSuggestions] = useState(false)
   const [selectedSongs, setSelectedSongs] = useState<SpotifyTrack[]>([])
   const [loadingDetails, setLoadingDetails] = useState<string | null>(null)
+  const [isLoadingTrackDetails, setIsLoadingTrackDetails] = useState(false)
   const [description, setDescription] = useState("")
   const [isGenerating, setIsGenerating] = useState(false)
   const [generatedTracks, setGeneratedTracks] = useState<GeneratedTrack[]>([])
@@ -130,9 +130,47 @@ export default function Component() {
   const [selectedTrack, setSelectedTrack] = useState<GeneratedTrack | null>(
     null
   )
-  const [isLoadingTrackDetails, setIsLoadingTrackDetails] = useState(false)
+
+  const { query, setQuery, results, isLoading, error } = useSpotifySearch()
 
   const audioPlayer = useAudioPlayer()
+
+  useSupabaseBroadcastChannel({
+    onReceive: (payload) => {
+      console.log("Broadcast Payload:", payload)
+
+      if (payload?.status === "completed") {
+        // Update generated tracks with new track
+        const newTrack: GeneratedTrack = {
+          ...payload.track,
+          status: "completed",
+        }
+
+        setGeneratedTracks((prev) => [newTrack, ...prev])
+        setSelectedTrack(newTrack)
+        setIsGenerating(false)
+
+        // Refresh recent tracks
+        fetchRecentTracks()
+      } else if (payload?.status === "failed") {
+        // Update generated tracks with failure status
+        setGeneratedTracks((prev) =>
+          prev.map((track) =>
+            track.id === payload.track.id
+              ? { ...track, status: "failed", error_message: payload.error }
+              : track
+          )
+        )
+
+        // If the failed track is selected, clear it
+        if (selectedTrack?.id === payload.track.id) {
+          setSelectedTrack(null)
+        }
+
+        setIsGenerating(false)
+      }
+    },
+  })
 
   // Function to fetch recent tracks
   const fetchRecentTracks = useCallback(async () => {
@@ -213,23 +251,6 @@ export default function Component() {
   useEffect(() => {
     fetchRecentTracks()
   }, [fetchRecentTracks])
-
-  // Auto-refresh generating tracks every 30 seconds as fallback
-  useEffect(() => {
-    const generatingTracks = generatedTracks.filter(
-      (track) => track.status === "generating"
-    )
-
-    if (generatingTracks.length === 0) return
-
-    const interval = setInterval(() => {
-      generatingTracks.forEach((track) => {
-        refreshTrackStatus(track.id)
-      })
-    }, 30000) // Check every 30 seconds
-
-    return () => clearInterval(interval)
-  }, [generatedTracks, refreshTrackStatus])
 
   // Close suggestions when clicking outside
   useEffect(() => {
@@ -337,11 +358,6 @@ export default function Component() {
         // Clear the form
         setDescription("")
         setSelectedSongs([])
-
-        // Refresh recent tracks after successful generation start
-        setTimeout(() => {
-          fetchRecentTracks()
-        }, 2000)
       }
     } catch (error) {
       console.error("Generation error:", error)
@@ -379,7 +395,7 @@ export default function Component() {
             <div className="flex items-center space-x-2">
               <Badge
                 variant="secondary"
-                className="bg-slate-800 text-slate-300 border-slate-700"
+                className="bg-slate-800 text-slate-300 border-slate-700 select-none"
               >
                 <Headphones className="w-3 h-3 mr-1" />
                 Beta
