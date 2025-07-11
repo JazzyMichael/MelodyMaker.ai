@@ -31,47 +31,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-// import { Progress } from "@/components/ui/progress"  // Progress component is no longer used
+import { Progress } from "@/components/ui/progress";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { format } from "date-fns";
 import { useAudioPlayer } from "@/hooks/use-audio-player";
 import { useSpotifySearch } from "@/hooks/use-spotify-search";
 import { useSupabaseBroadcastChannel } from "@/hooks/use-supabase-realtime";
-
-// Waveform component to replace the progress bar
-const Waveform = ({
-  currentTime,
-  duration,
-}: {
-  currentTime: number;
-  duration: number;
-}) => {
-  const progress =
-    duration > 0
-      ? Math.min(100, Math.max(0, (currentTime / duration) * 100))
-      : 0;
-
-  return (
-    <div className="relative h-1 rounded-full bg-gradient-to-r from-gray-800 to-gray-600 overflow-hidden">
-      <div
-        className="absolute top-0 left-0 h-full bg-gradient-to-r from-orange-400 to-pink-400 transition-all duration-300 ease-out"
-        style={{ width: `${progress}%` }}
-      />
-      {/* Waveform pattern */}
-      <div
-        className="absolute top-0 left-0 h-full"
-        style={{
-          backgroundImage:
-            "linear-gradient(45deg, rgba(255,255,255,0.1) 25%, transparent 25%, transparent 50%, rgba(255,255,255,0.1) 50%, rgba(255,255,255,0.1) 75%, transparent 75%, transparent)",
-          backgroundSize: "20px 20px",
-          opacity: 0.3,
-          width: "100%",
-          height: "100%",
-        }}
-      />
-    </div>
-  );
-};
+import { AudioWaveform } from "@/components/audio-waveform";
 
 interface AudioFeatures {
   danceability: number;
@@ -697,10 +663,10 @@ export default function Component() {
                                 )}
                               </span>
                             </div>
-                            {/* <Progress  // This Progress is still used for song features, not audio player
+                            <Progress
                               value={track.audio_features.energy * 100}
                               className="h-1"
-                            /> */}
+                            />
                           </div>
 
                           <div>
@@ -716,10 +682,10 @@ export default function Component() {
                                 )}
                               </span>
                             </div>
-                            {/* <Progress  // This Progress is still used for song features, not audio player
+                            <Progress
                               value={track.audio_features.valence * 100}
                               className="h-1"
-                            /> */}
+                            />
                           </div>
 
                           <div>
@@ -734,10 +700,10 @@ export default function Component() {
                                 )}
                               </span>
                             </div>
-                            {/* <Progress  // This Progress is still used for song features, not audio player
+                            <Progress
                               value={track.audio_features.danceability * 100}
                               className="h-1"
-                            /> */}
+                            />
                           </div>
 
                           <div>
@@ -752,10 +718,10 @@ export default function Component() {
                                 )}
                               </span>
                             </div>
-                            {/* <Progress  // This Progress is still used for song features, not audio player
+                            <Progress
                               value={track.audio_features.acousticness * 100}
                               className="h-1"
-                            /> */}
+                            />
                           </div>
                         </div>
                       </div>
@@ -881,13 +847,17 @@ export default function Component() {
                               </>
                             )}
                           </div>
-                          {/* Progress bar for currently playing track - REPLACED WITH WAVEFORM */}
+                          {/* Progress bar for currently playing track */}
                           {audioPlayer.currentTrackId === track.id &&
                             audioPlayer.duration > 0 && (
                               <div className="mt-2">
-                                <Waveform
-                                  currentTime={audioPlayer.currentTime}
-                                  duration={audioPlayer.duration}
+                                <Progress
+                                  value={
+                                    (audioPlayer.currentTime /
+                                      audioPlayer.duration) *
+                                    100
+                                  }
+                                  className="h-1"
                                 />
                                 <p className="text-slate-500 text-xs mt-1">
                                   {Math.floor(audioPlayer.currentTime / 60)}:
@@ -1076,13 +1046,34 @@ export default function Component() {
                               </>
                             )}
                         </div>
-                        {/* Progress bar for currently playing track - REPLACED WITH WAVEFORM */}
-                        {audioPlayer.currentTrackId === track.id &&
+                        {/* Progress bar for currently playing track */}
+                        {/* {audioPlayer.currentTrackId === track.id &&
                           audioPlayer.duration > 0 && (
                             <div className="mt-1">
-                              <Waveform
+                              <Progress
+                                value={
+                                  (audioPlayer.currentTime /
+                                    audioPlayer.duration) *
+                                  100
+                                }
+                                className="h-1"
+                              />
+                            </div>
+                          )} */}
+                        {/* Waveform for currently playing track */}
+                        {audioPlayer.currentTrackId === track.id &&
+                          audioPlayer.duration > 0 && (
+                            <div className="mt-2">
+                              <AudioWaveform
+                                audioUrl={track.file_url}
+                                isPlaying={audioPlayer.isPlaying}
                                 currentTime={audioPlayer.currentTime}
                                 duration={audioPlayer.duration}
+                                onSeek={audioPlayer.seekTo}
+                                className="rounded"
+                                height={24}
+                                barWidth={1}
+                                barGap={1}
                               />
                             </div>
                           )}
@@ -1286,10 +1277,10 @@ export default function Component() {
                                     )}
                                   </span>
                                 </div>
-                                {/* <Progress  // This Progress is still used for song features, not audio player
+                                <Progress
                                   value={selectedTrack.energy * 100}
                                   className="h-1"
-                                /> */}
+                                />
                               </div>
                             )}
 
@@ -1307,10 +1298,10 @@ export default function Component() {
                                     )}
                                   </span>
                                 </div>
-                                {/* <Progress  // This Progress is still used for song features, not audio player
+                                <Progress
                                   value={selectedTrack.valence * 100}
                                   className="h-1"
-                                /> */}
+                                />
                               </div>
                             )}
 
