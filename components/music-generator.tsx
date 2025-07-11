@@ -1,6 +1,6 @@
-"use client"
+"use client";
 
-import { useState, useRef, useEffect, useCallback } from "react"
+import { useState, useRef, useEffect, useCallback } from "react";
 import {
   Loader2,
   ExternalLink,
@@ -19,78 +19,92 @@ import {
   Heart,
   Headphones,
   Calendar,
-} from "lucide-react"
+} from "lucide-react";
 import {
   Card,
   CardContent,
   CardHeader,
   CardTitle,
   CardDescription,
-} from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
-import { Badge } from "@/components/ui/badge"
-import { Progress } from "@/components/ui/progress"
-import { Alert, AlertDescription } from "@/components/ui/alert"
-import { format } from "date-fns"
-import { useAudioPlayer } from "@/hooks/use-audio-player"
-import { useSpotifySearch } from "@/hooks/use-spotify-search"
-import { useSupabaseBroadcastChannel } from "@/hooks/use-supabase-realtime"
+} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { format } from "date-fns";
+import { useAudioPlayer } from "@/hooks/use-audio-player";
+import { useSpotifySearch } from "@/hooks/use-spotify-search";
+import { useSupabaseBroadcastChannel } from "@/hooks/use-supabase-realtime";
+import { AudioWaveform } from "@/components/audio-waveform";
 
 interface AudioFeatures {
-  danceability: number
-  energy: number
-  valence: number
-  tempo: number
-  key: number
-  mode: number
-  time_signature: number
-  acousticness: number
-  instrumentalness: number
-  speechiness: number
+  danceability: number;
+  energy: number;
+  valence: number;
+  tempo: number;
+  key: number;
+  mode: number;
+  time_signature: number;
+  acousticness: number;
+  instrumentalness: number;
+  speechiness: number;
 }
 
 interface SpotifyTrack {
-  id: string
-  name: string
-  artist: string
-  album: string
-  image?: string
-  preview_url?: string
-  external_url: string
-  genres?: string[]
-  audio_features?: AudioFeatures
-  popularity?: number
-  duration_ms?: number
+  id: string;
+  name: string;
+  artist: string;
+  album: string;
+  image?: string;
+  preview_url?: string;
+  external_url: string;
+  genres?: string[];
+  audio_features?: AudioFeatures;
+  popularity?: number;
+  duration_ms?: number;
 }
 
 interface GeneratedTrack {
-  id: string
-  title: string
-  status: "generating" | "completed" | "failed"
-  file_url?: string
-  duration?: number
-  created_at: string
-  estimated_completion?: string
-  user_description?: string
-  description?: string
-  genres?: string[]
-  selected_songs?: any[]
-  generation_params?: any
-  tempo?: number
-  energy?: number
-  valence?: number
-  error_message?: string
+  id: string;
+  title: string;
+  status: "generating" | "completed" | "failed";
+  file_url?: string;
+  duration?: number;
+  created_at: string;
+  estimated_completion?: string;
+  user_description?: string;
+  description?: string;
+  genres?: string[];
+  selected_songs?: any[];
+  generation_params?: any;
+  tempo?: number;
+  energy?: number;
+  valence?: number;
+  error_message?: string;
 }
 
 // Helper functions for audio features
 const getKeyName = (key: number, mode: number) => {
-  const keys = ["C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "A♯", "B"]
-  const keyName = keys[key] || "?"
-  const modeName = mode === 1 ? "Major" : "Minor"
-  return `${keyName} ${modeName}`
-}
+  const keys = [
+    "C",
+    "C♯",
+    "D",
+    "D♯",
+    "E",
+    "F",
+    "F♯",
+    "G",
+    "G♯",
+    "A",
+    "A♯",
+    "B",
+  ];
+  const keyName = keys[key] || "?";
+  const modeName = mode === 1 ? "Major" : "Minor";
+  return `${keyName} ${modeName}`;
+};
 
 const getFeatureLabel = (feature: string, value: number) => {
   const labels: Record<string, string[]> = {
@@ -110,48 +124,48 @@ const getFeatureLabel = (feature: string, value: number) => {
       "Acoustic",
       "Very Acoustic",
     ],
-  }
+  };
 
-  const index = Math.floor(value * 5)
-  return labels[feature]?.[Math.min(index, 4)] || "Unknown"
-}
+  const index = Math.floor(value * 5);
+  return labels[feature]?.[Math.min(index, 4)] || "Unknown";
+};
 
 export default function Component() {
-  const searchRef = useRef<HTMLDivElement>(null)
-  const [showSuggestions, setShowSuggestions] = useState(false)
-  const [selectedSongs, setSelectedSongs] = useState<SpotifyTrack[]>([])
-  const [loadingDetails, setLoadingDetails] = useState<string | null>(null)
-  const [isLoadingTrackDetails, setIsLoadingTrackDetails] = useState(false)
-  const [description, setDescription] = useState("")
-  const [isGenerating, setIsGenerating] = useState(false)
-  const [generatedTracks, setGeneratedTracks] = useState<GeneratedTrack[]>([])
-  const [generationError, setGenerationError] = useState<string | null>(null)
-  const [recentTracks, setRecentTracks] = useState<GeneratedTrack[]>([])
+  const searchRef = useRef<HTMLDivElement>(null);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [selectedSongs, setSelectedSongs] = useState<SpotifyTrack[]>([]);
+  const [loadingDetails, setLoadingDetails] = useState<string | null>(null);
+  const [isLoadingTrackDetails, setIsLoadingTrackDetails] = useState(false);
+  const [description, setDescription] = useState("");
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generatedTracks, setGeneratedTracks] = useState<GeneratedTrack[]>([]);
+  const [generationError, setGenerationError] = useState<string | null>(null);
+  const [recentTracks, setRecentTracks] = useState<GeneratedTrack[]>([]);
   const [selectedTrack, setSelectedTrack] = useState<GeneratedTrack | null>(
     null
-  )
+  );
 
-  const { query, setQuery, results, isLoading, error } = useSpotifySearch()
+  const { query, setQuery, results, isLoading, error } = useSpotifySearch();
 
-  const audioPlayer = useAudioPlayer()
+  const audioPlayer = useAudioPlayer();
 
   useSupabaseBroadcastChannel({
     onReceive: (payload) => {
-      console.log("Broadcast Payload:", payload)
+      console.log("Broadcast Payload:", payload);
 
       if (payload?.status === "completed") {
         // Update generated tracks with new track
         const newTrack: GeneratedTrack = {
           ...payload.track,
           status: "completed",
-        }
+        };
 
-        setGeneratedTracks((prev) => [newTrack, ...prev])
-        setSelectedTrack(newTrack)
-        setIsGenerating(false)
+        setGeneratedTracks((prev) => [newTrack, ...prev]);
+        setSelectedTrack(newTrack);
+        setIsGenerating(false);
 
         // Refresh recent tracks
-        fetchRecentTracks()
+        fetchRecentTracks();
       } else if (payload?.status === "failed") {
         // Update generated tracks with failure status
         setGeneratedTracks((prev) =>
@@ -160,65 +174,65 @@ export default function Component() {
               ? { ...track, status: "failed", error_message: payload.error }
               : track
           )
-        )
+        );
 
         // If the failed track is selected, clear it
         if (selectedTrack?.id === payload.track.id) {
-          setSelectedTrack(null)
+          setSelectedTrack(null);
         }
 
-        setIsGenerating(false)
+        setIsGenerating(false);
       }
     },
-  })
+  });
 
   // Function to fetch recent tracks
   const fetchRecentTracks = useCallback(async () => {
     try {
-      const response = await fetch("/api/recent-tracks?limit=3")
+      const response = await fetch("/api/recent-tracks?limit=3");
 
       if (!response.ok) {
-        console.error("Failed to fetch recent tracks:", response.status)
-        return
+        console.error("Failed to fetch recent tracks:", response.status);
+        return;
       }
 
-      const data = await response.json()
+      const data = await response.json();
       if (data.tracks) {
-        setRecentTracks(data.tracks)
+        setRecentTracks(data.tracks);
       }
     } catch (error) {
-      console.error("Failed to fetch recent tracks:", error)
+      console.error("Failed to fetch recent tracks:", error);
     }
-  }, [])
+  }, []);
 
   // Function to fetch track details
   const fetchTrackDetails = useCallback(async (trackId: string) => {
-    setIsLoadingTrackDetails(true)
+    setIsLoadingTrackDetails(true);
     try {
-      const response = await fetch(`/api/generate-music?id=${trackId}`)
+      const response = await fetch(`/api/generate-music?id=${trackId}`);
 
       if (!response.ok) {
-        console.error("Failed to fetch track details:", response.status)
-        return null
+        console.error("Failed to fetch track details:", response.status);
+        return null;
       }
 
-      const data = await response.json()
+      const data = await response.json();
       if (data.track) {
-        setSelectedTrack(data.track)
+        setSelectedTrack(data.track);
       }
     } catch (error) {
-      console.error("Failed to fetch track details:", error)
+      console.error("Failed to fetch track details:", error);
     } finally {
-      setIsLoadingTrackDetails(false)
+      setIsLoadingTrackDetails(false);
     }
-  }, [])
+  }, []);
 
   // Function to refresh track status (for manual refresh)
   const refreshTrackStatus = useCallback(
     async (trackId: string) => {
       try {
-        const response = await fetch(`/api/generate-music?id=${trackId}`)
-        const data = await response.json()
+        const response = await fetch(`/api/generate-music?id=${trackId}`);
+        const data = await response.json();
 
         if (data.track) {
           // Update generated tracks
@@ -226,31 +240,31 @@ export default function Component() {
             prev.map((track) =>
               track.id === trackId ? { ...track, ...data.track } : track
             )
-          )
+          );
 
           // Update selected track if it's the same one
           if (selectedTrack?.id === trackId) {
             setSelectedTrack((prev) =>
               prev ? { ...prev, ...data.track } : null
-            )
+            );
           }
 
           // Refresh recent tracks if status changed to completed
           if (data.track.status === "completed") {
-            fetchRecentTracks()
+            fetchRecentTracks();
           }
         }
       } catch (error) {
-        console.error("Failed to refresh track status:", error)
+        console.error("Failed to refresh track status:", error);
       }
     },
     [selectedTrack?.id, fetchRecentTracks]
-  )
+  );
 
   // Fetch recent tracks on component mount
   useEffect(() => {
-    fetchRecentTracks()
-  }, [fetchRecentTracks])
+    fetchRecentTracks();
+  }, [fetchRecentTracks]);
 
   // Close suggestions when clicking outside
   useEffect(() => {
@@ -259,12 +273,12 @@ export default function Component() {
         searchRef.current &&
         !searchRef.current.contains(event.target as Node)
       ) {
-        setShowSuggestions(false)
+        setShowSuggestions(false);
       }
     }
-    document.addEventListener("mousedown", handleClickOutside)
-    return () => document.removeEventListener("mousedown", handleClickOutside)
-  }, [])
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   const fetchSpotifyTrackDetails = async (
     trackId: string
@@ -274,59 +288,59 @@ export default function Component() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ trackId }),
-      })
+      });
 
       if (!response.ok) {
-        console.error(`Failed to fetch track details: ${response.status}`)
-        return null
+        console.error(`Failed to fetch track details: ${response.status}`);
+        return null;
       }
 
-      const data = await response.json()
+      const data = await response.json();
 
       if (data.error) {
-        console.error("Spotify API error:", data.error)
-        return null
+        console.error("Spotify API error:", data.error);
+        return null;
       }
 
-      return data.track
+      return data.track;
     } catch (error) {
-      console.error("Failed to fetch track details:", error)
-      return null
+      console.error("Failed to fetch track details:", error);
+      return null;
     }
-  }
+  };
 
   const addSelectedSong = async (track: SpotifyTrack) => {
-    if (selectedSongs.length >= 5) return
-    if (selectedSongs.some((song) => song.id === track.id)) return
+    if (selectedSongs.length >= 5) return;
+    if (selectedSongs.some((song) => song.id === track.id)) return;
 
-    setLoadingDetails(track.id)
+    setLoadingDetails(track.id);
 
     // Try to fetch detailed track information
-    const detailedTrack = await fetchSpotifyTrackDetails(track.id)
+    const detailedTrack = await fetchSpotifyTrackDetails(track.id);
 
     if (detailedTrack) {
-      setSelectedSongs((prev) => [...prev, detailedTrack])
+      setSelectedSongs((prev) => [...prev, detailedTrack]);
     } else {
       // Fallback to basic track info if detailed fetch fails
-      console.warn("Using basic track info as fallback")
+      console.warn("Using basic track info as fallback");
       setSelectedSongs((prev) => [
         ...prev,
         { ...track, genres: [], audio_features: undefined },
-      ])
+      ]);
     }
 
-    setLoadingDetails(null)
-    setQuery("")
-    setShowSuggestions(false)
-  }
+    setLoadingDetails(null);
+    setQuery("");
+    setShowSuggestions(false);
+  };
 
   const removeSelectedSong = (trackId: string) => {
-    setSelectedSongs((prev) => prev.filter((song) => song.id !== trackId))
-  }
+    setSelectedSongs((prev) => prev.filter((song) => song.id !== trackId));
+  };
 
   const handleGenerateMusic = async () => {
-    setIsGenerating(true)
-    setGenerationError(null)
+    setIsGenerating(true);
+    setGenerationError(null);
 
     try {
       const response = await fetch("/api/generate-music", {
@@ -338,44 +352,44 @@ export default function Component() {
           description: description.trim(),
           selectedSongs: selectedSongs,
         }),
-      })
+      });
 
-      const data = await response.json()
+      const data = await response.json();
 
       if (!response.ok) {
         // Handle specific error cases
         if (response.status === 500 && data.error?.includes("not configured")) {
           throw new Error(
             "Service not properly configured. Please check your API keys."
-          )
+          );
         }
-        throw new Error(data.error || "Failed to generate music")
+        throw new Error(data.error || "Failed to generate music");
       }
 
       if (data.success && data.track) {
-        setGeneratedTracks((prev) => [data.track, ...prev])
+        setGeneratedTracks((prev) => [data.track, ...prev]);
 
         // Clear the form
-        setDescription("")
-        setSelectedSongs([])
+        setDescription("");
+        setSelectedSongs([]);
       }
     } catch (error) {
-      console.error("Generation error:", error)
+      console.error("Generation error:", error);
       setGenerationError(
         error instanceof Error ? error.message : "Failed to generate music"
-      )
+      );
     } finally {
-      setIsGenerating(false)
+      setIsGenerating(false);
     }
-  }
+  };
 
   const handleSelectTrack = (track: GeneratedTrack) => {
     if (selectedTrack?.id === track.id) {
-      setSelectedTrack(null)
+      setSelectedTrack(null);
     } else {
-      fetchTrackDetails(track.id)
+      fetchTrackDetails(track.id);
     }
-  }
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-cyan-950 via-fuchsia-700 to-cyan-500">
@@ -442,8 +456,8 @@ export default function Component() {
                 <Input
                   value={query}
                   onChange={(e) => {
-                    setQuery(e.target.value)
-                    setShowSuggestions(true)
+                    setQuery(e.target.value);
+                    setShowSuggestions(true);
                   }}
                   onFocus={() => setShowSuggestions(true)}
                   placeholder="Search for songs, artists, or genres on Spotify..."
@@ -955,7 +969,7 @@ export default function Component() {
                     }`}
                     onClick={() => handleSelectTrack(track)}
                   >
-                    <div className="flex items-center space-x-3">
+                    <div className="flex items-center justify-between mb-2">
                       <Button
                         size="sm"
                         variant="ghost"
@@ -966,14 +980,14 @@ export default function Component() {
                             : "text-orange-400 hover:text-orange-300"
                         }`}
                         onClick={(e) => {
-                          e.stopPropagation()
+                          e.stopPropagation();
                           if (track.file_url) {
-                            audioPlayer.playTrack(track.id, track.file_url)
+                            audioPlayer.playTrack(track.id, track.file_url);
                           } else {
                             console.warn(
                               "No audio URL available for track:",
                               track.id
-                            )
+                            );
                           }
                         }}
                         disabled={
@@ -1055,13 +1069,42 @@ export default function Component() {
                           )}
                       </div>
                     </div>
+
+                    {/* Add mini waveform for recent tracks */}
+                    {track.file_url && (
+                      <AudioWaveform
+                        audioUrl={track.file_url}
+                        isPlaying={
+                          audioPlayer.currentTrackId === track.id &&
+                          audioPlayer.isPlaying
+                        }
+                        currentTime={
+                          audioPlayer.currentTrackId === track.id
+                            ? audioPlayer.currentTime
+                            : 0
+                        }
+                        duration={
+                          audioPlayer.currentTrackId === track.id
+                            ? audioPlayer.duration
+                            : track.duration || 0
+                        }
+                        height={30}
+                        barWidth={1}
+                        barGap={1}
+                        className="mt-2"
+                        onSeek={(time) => {
+                          console.log("Seek to:", time);
+                        }}
+                      />
+                    )}
+
                     <div className="flex items-center space-x-2">
                       <Button
                         size="sm"
                         variant="ghost"
                         className="w-8 h-8 p-0 text-slate-400 hover:text-pink-400"
                         onClick={(e) => {
-                          e.stopPropagation()
+                          e.stopPropagation();
                           // Favorite functionality would go here
                         }}
                       >
@@ -1072,9 +1115,9 @@ export default function Component() {
                         variant="ghost"
                         className="w-8 h-8 p-0 text-slate-400 hover:text-green-400"
                         onClick={(e) => {
-                          e.stopPropagation()
+                          e.stopPropagation();
                           if (track.file_url) {
-                            window.open(track.file_url, "_blank")
+                            window.open(track.file_url, "_blank");
                           }
                         }}
                       >
@@ -1089,8 +1132,8 @@ export default function Component() {
                             : ""
                         }`}
                         onClick={(e) => {
-                          e.stopPropagation()
-                          handleSelectTrack(track)
+                          e.stopPropagation();
+                          handleSelectTrack(track);
                         }}
                       >
                         <Info className="w-4 h-4" />
@@ -1175,6 +1218,39 @@ export default function Component() {
                           </Button>
                         )}
                       </div>
+
+                      {/* Add detailed waveform for selected track */}
+                      {selectedTrack.file_url && (
+                        <div className="mt-4">
+                          <h4 className="text-sm font-medium text-slate-300 mb-2">
+                            Audio Waveform
+                          </h4>
+                          <AudioWaveform
+                            audioUrl={selectedTrack.file_url}
+                            isPlaying={
+                              audioPlayer.currentTrackId === selectedTrack.id &&
+                              audioPlayer.isPlaying
+                            }
+                            currentTime={
+                              audioPlayer.currentTrackId === selectedTrack.id
+                                ? audioPlayer.currentTime
+                                : 0
+                            }
+                            duration={
+                              audioPlayer.currentTrackId === selectedTrack.id
+                                ? audioPlayer.duration
+                                : selectedTrack.duration || 0
+                            }
+                            height={80}
+                            className="bg-slate-900/30 rounded-md p-3"
+                            color="#475569" // slate-600
+                            progressColor="#f97316" // orange-500
+                            onSeek={(time) => {
+                              console.log("Seek to:", time);
+                            }}
+                          />
+                        </div>
+                      )}
 
                       {/* Created date */}
                       <div className="flex items-center text-sm text-slate-400">
@@ -1362,5 +1438,5 @@ export default function Component() {
         </div>
       </footer>
     </div>
-  )
+  );
 }
