@@ -245,6 +245,10 @@ export default function Component() {
       const data = await response.json();
       if (data.tracks) {
         setRecentTracks(data.tracks);
+        // added a default generated track for easy testing
+        if (!generatedTracks.length) {
+          setGeneratedTracks([data.tracks[0]]);
+        }
       }
     } catch (error) {
       console.error("Failed to fetch recent tracks:", error);
@@ -930,24 +934,6 @@ export default function Component() {
                                       />
                                     </div>
                                   )}
-                                {/* <Progress
-                                  value={
-                                    (audioPlayer.currentTime /
-                                      audioPlayer.duration) *
-                                    100
-                                  }
-                                  className="h-1"
-                                /> */}
-                                <p className="text-slate-500 text-xs mt-1">
-                                  {Math.floor(audioPlayer.currentTime / 60)}:
-                                  {String(
-                                    Math.floor(audioPlayer.currentTime % 60)
-                                  ).padStart(2, "0")}{" "}
-                                  /{Math.floor(audioPlayer.duration / 60)}:
-                                  {String(
-                                    Math.floor(audioPlayer.duration % 60)
-                                  ).padStart(2, "0")}
-                                </p>
                               </div>
                             )}
                           {/* Error message */}
